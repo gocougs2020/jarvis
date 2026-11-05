@@ -72,9 +72,9 @@ export default defineTool({
     });
     // A repeating cadence fires on its own clock, so start from its first
     // occurrence at or after firstRunAt (or now, if firstRunAt has passed).
-    const cadenceFrom = new Date(Math.max(Date.now(), Date.parse(input.firstRunAt) - 1_000));
+    const cadenceFrom = new Date(Math.max(Date.now(), Date.parse(input.firstRunAt)));
     const fields = input.cadence
-      ? scheduleFieldsFromCadence(input.cadence, cadenceFrom)
+      ? scheduleFieldsFromCadence(input.cadence, new Date(cadenceFrom.getTime() - 1_000))
       : (!skill || skill === REMIND_SKILL_SLUG) && input.everyMinutes == null
         ? scheduleFieldsFromCadence(onceCadenceFromInstant(input.firstRunAt))
         : null;
@@ -85,9 +85,15 @@ export default defineTool({
     ) {
       throw new Error(SUB_DAILY_SCHEDULE_MESSAGE);
     }
+    // An interval has no clock to align to: its first run is firstRunAt itself
+    // (or now, if that has passed), not one interval after it.
+    const firstRunAt =
+      fields?.cadence.kind === "interval"
+        ? cadenceFrom.toISOString()
+        : (fields?.nextRunAt ?? input.firstRunAt);
     return await createJob(user.userId, {
       prompt,
-      firstRunAt: fields?.nextRunAt ?? input.firstRunAt,
+      firstRunAt,
       everyMinutes: fields?.everyMinutes ?? input.everyMinutes,
       cadence: fields?.cadence ?? null,
       authenticator: user.authenticator ?? "better-auth",

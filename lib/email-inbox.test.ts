@@ -201,6 +201,35 @@ describe("processInboundResendEmail", () => {
     expect(job?.prompt).toContain("Complete the request in this email.");
   });
 
+  it("keeps the chat when the session start timed out and may be running", async () => {
+    mocks.classifyEmailAction.mockResolvedValue({
+      hasActionItem: true,
+      summary: "Book dinner",
+      prompt: "Book dinner for two.",
+    });
+    mocks.createChat.mockResolvedValue({ id: "chat-1" });
+    mocks.updateEmail.mockResolvedValue(emailRecord({ hasActionItem: true, actionSummary: "Book dinner" }));
+
+    const sessionSecret = process.env.EMAIL_SESSION_SECRET;
+    env().EMAIL_SESSION_SECRET = "test-dispatch-secret";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError")));
+    try {
+      await processInboundResendEmail(inbound);
+    } finally {
+      vi.unstubAllGlobals();
+      if (sessionSecret === undefined) delete env().EMAIL_SESSION_SECRET;
+      else env().EMAIL_SESSION_SECRET = sessionSecret;
+    }
+    expect(mocks.deleteChat).not.toHaveBeenCalled();
+    expect(mocks.updateEmail).toHaveBeenCalledWith(
+      "user-1",
+      "mail-1",
+      expect.objectContaining({ chatId: "chat-1", status: "processed" }),
+    );
+    const [, job] = mocks.createJob.mock.calls.at(-1) ?? [];
+    expect(job?.prompt).toMatch(/^\/remind\b/);
+  });
+
   it("does not store an empty body when receiving.get fails", async () => {
     mocks.fetchReceivedEmailContent.mockRejectedValue(
       new ReceivedEmailContentError("not ready", true),

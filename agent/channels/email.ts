@@ -37,6 +37,14 @@ export default defineChannel({
         },
       });
 
+      if (chatId) {
+        // Record the session on its chat here, not only in the caller, so a
+        // caller that timed out still leaves the chat linked to the running session.
+        const { updateChat } = await import("../../lib/store");
+        await updateChat(body.userId, chatId, { sessionId: session.id }).catch((error: unknown) =>
+          console.error("[email] could not record session on chat", error),
+        );
+      }
       return Response.json({ sessionId: session.id });
     }),
   ],

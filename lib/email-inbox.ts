@@ -132,14 +132,24 @@ export function toClientEmail(
   };
 }
 
+/**
+ * "started": the session is running. "maybe": the request may have started it
+ * (timeout, network error, 5xx), and the email route records the session id on
+ * the chat itself in that case. "not-started": it definitely did not run.
+ */
+type EmailSessionStart =
+  | { status: "started"; sessionId: string }
+  | { status: "maybe" }
+  | { status: "not-started" };
+
 async function startEmailSessionNow(
   email: EmailRecord,
   prompt: string,
   chatId: string,
-): Promise<string | null> {
+): Promise<EmailSessionStart> {
   const secret = internalDispatchSecret();
   const origin = appOrigin();
-  if (!secret) return null;
+  if (!secret) return { status: "not-started" };
   const owner = await findUserById(email.userId);
   try {
     const response = await fetch(`${origin}/api/internal/email-sessions`, {
@@ -157,12 +167,16 @@ async function startEmailSessionNow(
         chatId,
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.error("[email] immediate session start returned", response.status);
+      return response.status >= 500 ? { status: "maybe" } : { status: "not-started" };
+    }
     const payload = (await response.json().catch(() => ({}))) as { sessionId?: string };
-    return payload.sessionId?.trim() || null;
+    const sessionId = payload.sessionId?.trim();
+    return sessionId ? { status: "started", sessionId } : { status: "maybe" };
   } catch (error) {
     console.error("[email] immediate session start failed", error);
-    return null;
+    return { status: "maybe" };
   }
 }
 
@@ -173,9 +187,9 @@ export async function startEmailActionSession(email: EmailRecord, prompt: string
     titleFromPrompt(email.actionSummary || email.subject || prompt),
     "email",
   );
-  const sessionId = await startEmailSessionNow(email, prompt, chat.id);
-  if (sessionId) {
-    await updateChat(email.userId, chat.id, { sessionId });
+  const start = await startEmailSessionNow(email, prompt, chat.id);
+  if (start.status === "started") {
+    await updateChat(email.userId, chat.id, { sessionId: start.sessionId });
     await updateEmail(email.userId, email.id, { chatId: chat.id, status: "processed" });
     return chat.id;
   }
@@ -183,8 +197,7 @@ export async function startEmailActionSession(email: EmailRecord, prompt: string
   // Could not confirm the start (timeout, cold start, deploy). Queue a /remind
   // follow-through instead of a plain nudge: a nudge only pings the user, and
   // /remind checks prior sessions first, so a start that did go through is
-  // not repeated. The scheduler opens its own session, so drop this empty one.
-  await deleteChat(email.userId, chat.id);
+  // not repeated.
   await createJob(email.userId, {
     prompt: remindFollowThroughPrompt(prompt),
     firstRunAt: new Date().toISOString(),
@@ -192,6 +205,14 @@ export async function startEmailActionSession(email: EmailRecord, prompt: string
     authenticator: "better-auth",
     issuer: null,
   });
+  if (start.status === "maybe") {
+    // The session may be running on this chat (the email route records its id),
+    // so keep the chat and link it rather than lose that history.
+    await updateEmail(email.userId, email.id, { chatId: chat.id, status: "processed" });
+    return chat.id;
+  }
+  // Nothing started; the scheduler opens its own session, so drop this empty chat.
+  await deleteChat(email.userId, chat.id);
   await updateEmail(email.userId, email.id, { status: "processed" });
   return null;
 }
