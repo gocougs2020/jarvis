@@ -101,6 +101,7 @@ describe("failedDispatchPlan", () => {
   const now = new Date("2026-11-05T15:00:00.000Z");
   const base = {
     everyMinutes: null,
+    lastError: null,
     firstRunAt: "2026-11-05T14:55:00.000Z",
     nextRunAt: "2026-11-05T14:55:00.000Z",
   };
@@ -122,9 +123,30 @@ describe("failedDispatchPlan", () => {
     const fresh = failedDispatchPlan({ ...base, cadence: null }, now);
     expect(fresh).toEqual({ retryAt: new Date(now.getTime() + 300_000), disable: false });
     const stale = failedDispatchPlan(
-      { ...base, cadence: null, firstRunAt: "2026-11-04T00:00:00.000Z" },
+      { ...base, cadence: null, firstRunAt: "2026-11-04T00:00:00.000Z", lastError: "boom" },
       now,
     );
     expect(stale).toEqual({ retryAt: null, disable: true });
+  });
+
+  it("never pauses a one-off on its first failure", () => {
+    const plan = failedDispatchPlan(
+      { ...base, cadence: null, firstRunAt: "2026-11-01T00:00:00.000Z" },
+      now,
+    );
+    expect(plan.disable).toBe(false);
+  });
+
+  it("measures from a rescheduled one-off's current slot, not its creation time", () => {
+    const plan = failedDispatchPlan(
+      {
+        ...base,
+        firstRunAt: "2026-11-01T00:00:00.000Z",
+        lastError: "boom",
+        cadence: { kind: "once", timezone: "UTC", at: "2026-11-05T14:00" },
+      },
+      now,
+    );
+    expect(plan.disable).toBe(false);
   });
 });

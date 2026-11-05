@@ -10,7 +10,12 @@ import {
   scheduleDispatchMessage,
   schedulePreviewText,
 } from "@/lib/schedule-prompt";
-import { advanceJobAfterRun, isOneOffJob } from "@/lib/job-cadence";
+import {
+  advanceJobAfterRun,
+  isOneOffJob,
+  nextRunAtFromCadence,
+  parseJobCadence,
+} from "@/lib/job-cadence";
 import {
   claimDueJobs,
   claimJob,
@@ -44,11 +49,13 @@ const ONE_OFF_GIVE_UP_MS = 6 * 60 * 60_000;
  * one-off retries on a short backoff, then pauses.
  */
 export function failedDispatchPlan(
-  job: Pick<ScheduledJob, "cadence" | "everyMinutes" | "nextRunAt" | "firstRunAt">,
+  job: Pick<ScheduledJob, "cadence" | "everyMinutes" | "nextRunAt" | "firstRunAt" | "lastError">,
   now = new Date(),
 ): { retryAt: Date | null; disable: boolean } {
   if (isOneOffJob(job)) {
-    const dueAt = Date.parse(job.firstRunAt);
+    // Never give up on the first failure: the job may have just been
+    // rescheduled. After that, measure from the slot it is scheduled for now.
+    const dueAt = job.lastError ? oneOffScheduledAt(job) : Number.NaN;
     if (Number.isFinite(dueAt) && now.getTime() - dueAt > ONE_OFF_GIVE_UP_MS) {
       return { retryAt: null, disable: true };
     }
@@ -57,6 +64,17 @@ export function failedDispatchPlan(
   const advanced = advanceJobAfterRun(job);
   if (!advanced.enabled || !advanced.nextRunAt) return { retryAt: null, disable: true };
   return { retryAt: new Date(advanced.nextRunAt), disable: false };
+}
+
+/**
+ * When a one-off is scheduled to run. Editing its time rewrites its "once"
+ * cadence (never `firstRunAt`), so use the later of the two.
+ */
+function oneOffScheduledAt(job: Pick<ScheduledJob, "cadence" | "firstRunAt">): number {
+  const first = Date.parse(job.firstRunAt);
+  const cadence = parseJobCadence(job.cadence);
+  const at = cadence?.kind === "once" ? nextRunAtFromCadence(cadence)?.getTime() : undefined;
+  return at !== undefined && Number.isFinite(at) ? Math.max(first, at) : first;
 }
 
 export type ScheduleStartSession = (

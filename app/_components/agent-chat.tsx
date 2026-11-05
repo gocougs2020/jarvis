@@ -113,6 +113,20 @@ const idleComposer: SessionComposer = {
 
 const STREAM_CHECKPOINT_MS = 3_000;
 
+/**
+ * Stored events are compacted, so they do not carry every event id the eve
+ * server streamed. Resuming replays that stream from the start and dedupes by
+ * id, so hydrating compacted events would duplicate earlier replies. When a
+ * turn will be resumed, start empty and let the replay rebuild the transcript.
+ */
+function resumeHydration(
+  sessionId: string | null | undefined,
+  events: readonly MessageStreamEvent[] | undefined,
+): MessageStreamEvent[] {
+  if (shouldResumeEveSession(sessionId, events)) return [];
+  return [...(events ?? [])];
+}
+
 export function AgentChat(props: AgentChatProps) {
   const [storeGeneration, setStoreGeneration] = useState(0);
   const [prompt, setPrompt] = useState("");
@@ -122,7 +136,7 @@ export function AgentChat(props: AgentChatProps) {
   const [resume, setResume] = useState(() =>
     shouldResumeEveSession(props.chat?.sessionId, props.initialEvents),
   );
-  const hydratedEventsRef = useRef(props.initialEvents ?? []);
+  const hydratedEventsRef = useRef(resumeHydration(props.chat?.sessionId, props.initialEvents));
   const hydratedChatKeyRef = useRef(props.chat?.id ?? "draft");
   const remountingRef = useRef(false);
   const retryRef = useRef<PromptInputMessage>(undefined);
@@ -131,7 +145,7 @@ export function AgentChat(props: AgentChatProps) {
   if (hydratedChatKeyRef.current !== chatKey) {
     hydratedChatKeyRef.current = chatKey;
     // eslint-disable-next-line react-hooks/refs -- reset hydration when the chat changes
-    hydratedEventsRef.current = props.initialEvents ?? [];
+    hydratedEventsRef.current = resumeHydration(props.chat?.sessionId, props.initialEvents);
   }
 
   const onHydrateEvents = useCallback((events: readonly MessageStreamEvent[]) => {
@@ -165,6 +179,7 @@ export function AgentChat(props: AgentChatProps) {
       hideComposer={!landing}
       // eslint-disable-next-line react-hooks/refs -- remount handoff
       initialEvents={hydratedEventsRef.current}
+      storedEventCount={props.initialEvents?.length ?? 0}
       onComposerChange={landing ? undefined : setComposer}
       prompt={prompt}
       resume={resume}
@@ -227,6 +242,7 @@ function AgentChatSession({
   onComposerChange,
   onHydrateEvents,
   onStuckResuming,
+  storedEventCount = 0,
 }: AgentChatProps & {
   readonly autoSend?: PromptInputMessage;
   readonly canvasHost?: HTMLElement | null;
@@ -236,6 +252,8 @@ function AgentChatSession({
   readonly resume?: boolean;
   readonly setPrompt: Dispatch<SetStateAction<string>>;
   readonly onHydrateEvents: (events: readonly MessageStreamEvent[]) => void;
+  /** Rows the server held when this page loaded; no write may shrink below it. */
+  readonly storedEventCount?: number;
   readonly onStuckResuming: (retry?: PromptInputMessage) => void;
 }) {
   const router = useRouter();
@@ -404,6 +422,9 @@ function AgentChatSession({
   // checkpoint of a mount writes the whole compacted log (also compacting a
   // chat saved before compaction existed); later ones write only the tail.
   const storedEventsRef = useRef<MessageStreamEvent[]>([]);
+  // While resuming, the replay rebuilds the log from empty; do not let an early
+  // checkpoint of a partial replay trim rows the server already has.
+  const storedFloorRef = useRef(storedEventCount);
   const persistInFlight = useRef(false);
   const persistQueued = useRef<{
     events: readonly MessageStreamEvent[];
@@ -424,6 +445,7 @@ function AgentChatSession({
     // otherwise means "nothing yet", not "delete everything".
     if (queued.events.length === 0 && !queued.reset) return;
     const next = compactStreamEvents(queued.events);
+    if (!queued.reset && next.length < storedFloorRef.current) return;
     const stored = storedEventsRef.current;
     const fromIndex = firstChangedIndex(stored, next, isSameStreamEvent);
     // An older or empty snapshot (a prefix of what is stored) must not trim the log.
@@ -488,7 +510,13 @@ function AgentChatSession({
     onEvent(event) {
       eventsRef.current = [...eventsRef.current, event];
       onHydrateEvents(eventsRef.current);
-      scheduleCheckpoint();
+      // Save the first event of a new turn right away, so a reload sees an
+      // unfinished turn and resumes it; later events ride the checkpoint timer.
+      if (storedEventsRef.current.length === 0 || hasSettledSessionTail(storedEventsRef.current)) {
+        persistEvents(eventsRef.current);
+      } else {
+        scheduleCheckpoint();
+      }
       if (event.type === "action.result") {
         const documents = documentsFromToolOutput(
           "output" in event.data ? event.data.output : undefined,
@@ -597,6 +625,7 @@ function AgentChatSession({
     // An intentional reset is the one write allowed to empty the stored log.
     window.clearTimeout(checkpointTimer.current);
     checkpointTimer.current = undefined;
+    storedFloorRef.current = 0;
     persistQueued.current = { events: [], final: false, reset: true };
     flushPersistedEvents();
     agent.reset();
