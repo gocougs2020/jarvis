@@ -45,7 +45,9 @@ export default defineTool({
       .describe(
         "This-run facts only: who, what, which file, deadline, who to email. Do not paste skill steps or SKILL.md.",
       ),
-    firstRunAt: z.string().describe("ISO 8601 datetime with offset"),
+    firstRunAt: z.iso
+      .datetime({ offset: true })
+      .describe("ISO 8601 datetime with offset, e.g. 2026-11-06T09:00:00-08:00"),
     everyMinutes: z.number().int().min(1).max(525600).nullable().default(null),
     cadence: jobCadenceSchema
       .optional()
@@ -68,8 +70,11 @@ export default defineTool({
       skill,
       brief: parsed.brief || input.brief,
     });
+    // A repeating cadence fires on its own clock, so start from its first
+    // occurrence at or after firstRunAt (or now, if firstRunAt has passed).
+    const cadenceFrom = new Date(Math.max(Date.now(), Date.parse(input.firstRunAt)));
     const fields = input.cadence
-      ? scheduleFieldsFromCadence(input.cadence)
+      ? scheduleFieldsFromCadence(input.cadence, new Date(cadenceFrom.getTime() - 1_000))
       : (!skill || skill === REMIND_SKILL_SLUG) && input.everyMinutes == null
         ? scheduleFieldsFromCadence(onceCadenceFromInstant(input.firstRunAt))
         : null;
@@ -80,9 +85,15 @@ export default defineTool({
     ) {
       throw new Error(SUB_DAILY_SCHEDULE_MESSAGE);
     }
+    // An interval has no clock to align to: its first run is firstRunAt itself
+    // (or now, if that has passed), not one interval after it.
+    const firstRunAt =
+      fields?.cadence.kind === "interval"
+        ? cadenceFrom.toISOString()
+        : (fields?.nextRunAt ?? input.firstRunAt);
     return await createJob(user.userId, {
       prompt,
-      firstRunAt: input.firstRunAt ?? fields?.nextRunAt,
+      firstRunAt,
       everyMinutes: fields?.everyMinutes ?? input.everyMinutes,
       cadence: fields?.cadence ?? null,
       authenticator: user.authenticator ?? "better-auth",

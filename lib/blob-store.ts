@@ -10,8 +10,15 @@ export function hasBlobStore(): boolean {
   );
 }
 
-function localPath(pathname: string): string {
-  return path.join(process.cwd(), ".data", "blobs", pathname);
+const LOCAL_BLOB_ROOT = path.resolve(process.cwd(), ".data", "blobs");
+
+/** Resolve a blob pathname under `.data/blobs`, refusing anything that escapes it. */
+export function localPath(pathname: string): string {
+  const resolved = path.resolve(LOCAL_BLOB_ROOT, pathname);
+  if (!resolved.startsWith(`${LOCAL_BLOB_ROOT}${path.sep}`)) {
+    throw new Error("Invalid file path.");
+  }
+  return resolved;
 }
 
 function remoteBlobAuth(): { token?: string } {

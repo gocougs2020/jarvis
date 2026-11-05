@@ -1,5 +1,6 @@
 import { Client } from "eve/client";
 import { hasNeon } from "@/lib/db";
+import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import { findUserById } from "@/lib/email-users";
 import { reminderContextForDispatch } from "@/lib/reminder-context";
 import {
@@ -36,13 +37,10 @@ export type ScheduleStartSession = (
   chat: ChatRecord,
 ) => Promise<{ sessionId: string }>;
 
+export { appOrigin } from "@/lib/internal-auth";
+
 export function scheduleDispatchSecret(): string | null {
-  return (
-    process.env.EMAIL_SESSION_SECRET?.trim() ||
-    process.env.RESEND_WEBHOOK_SECRET?.trim() ||
-    process.env.BETTER_AUTH_SECRET?.trim() ||
-    null
-  );
+  return internalDispatchSecret();
 }
 
 export function scheduleSessionAuth(input: {
@@ -70,12 +68,8 @@ export function scheduleSessionAuth(input: {
   };
 }
 
-export async function buildScheduleDispatch(
-  job: ScheduledJob,
-  chat: ChatRecord,
-  request?: Request,
-) {
-  const origin = appOrigin(request);
+export async function buildScheduleDispatch(job: ScheduledJob, chat: ChatRecord) {
+  const origin = appOrigin();
   const owner = await findUserById(job.userId);
   const context = isNudgeReminderSchedule(job.prompt)
     ? await reminderContextForDispatch({
@@ -104,23 +98,6 @@ export async function buildScheduleDispatch(
   };
 }
 
-function httpsOrigin(host: string | undefined): string | null {
-  const trimmed = host?.trim().replace(/\/$/, "");
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
-  return `https://${trimmed}`;
-}
-
-export function appOrigin(request?: Request): string {
-  const configured = httpsOrigin(process.env.BETTER_AUTH_URL);
-  if (configured) return configured;
-  const hosted =
-    httpsOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL) || httpsOrigin(process.env.VERCEL_URL);
-  if (hosted) return hosted;
-  if (request) return new URL(request.url).origin;
-  return "http://localhost:3000";
-}
-
 function vercelProtectionBypassHeaders(): Record<string, string> {
   const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
   if (!bypass) return {};
@@ -133,6 +110,18 @@ export async function prepareScheduleChat(job: ScheduledJob): Promise<ChatRecord
   return createChat(job.userId, titleFromPrompt(schedulePreviewText(job.prompt)), "schedule");
 }
 
+async function finishDispatchedJob(job: ScheduledJob): Promise<void> {
+  const completed = await completeJob(job);
+  if (completed) return;
+  console.warn("[schedule] lost lease before complete", { jobId: job.id });
+  if (isOneOffJob(job)) {
+    const deleted = await deleteJob(job.userId, job.id);
+    if (!deleted) {
+      console.warn("[schedule] one-off still present after lost lease", { jobId: job.id });
+    }
+  }
+}
+
 export async function dispatchClaimedJobs(
   jobs: readonly ScheduledJob[],
   startSession: ScheduleStartSession,
@@ -142,26 +131,32 @@ export async function dispatchClaimedJobs(
   const errors: string[] = [];
   await Promise.all(
     jobs.map(async (job) => {
+      let started = false;
       try {
         const chat = await prepareScheduleChat(job);
-        const started = await startSession(job, chat);
-        if (started.sessionId) {
-          await updateChat(job.userId, chat.id, { sessionId: started.sessionId });
+        const session = await startSession(job, chat);
+        started = true;
+        if (session.sessionId) {
+          await updateChat(job.userId, chat.id, { sessionId: session.sessionId });
         }
-        const completed = await completeJob(job);
-        if (!completed) {
-          console.warn("[schedule] lost lease before complete", { jobId: job.id });
-          if (isOneOffJob(job)) {
-            const deleted = await deleteJob(job.userId, job.id);
-            if (!deleted) {
-              console.warn("[schedule] one-off still present after lost lease", { jobId: job.id });
-            }
-          }
-        }
+        await finishDispatchedJob(job);
         dispatched += 1;
       } catch (error) {
-        failed += 1;
         const message = error instanceof Error ? error.message : "Schedule dispatch failed";
+        if (started) {
+          // The session already runs. Releasing the job would fire it (and any
+          // reminder email) a second time, so only retry the bookkeeping.
+          console.error("[schedule] post-start bookkeeping failed", { jobId: job.id, error: message });
+          await finishDispatchedJob(job).catch((retryError) =>
+            console.error("[schedule] could not complete dispatched job", {
+              jobId: job.id,
+              error: retryError instanceof Error ? retryError.message : retryError,
+            }),
+          );
+          dispatched += 1;
+          return;
+        }
+        failed += 1;
         errors.push(message);
         console.error("[schedule] dispatch failed", { jobId: job.id, error: message });
         const retryAt = isOneOffJob(job) ? new Date(Date.now() + RETRY_MS) : null;
@@ -220,17 +215,13 @@ export async function dispatchJobNow(
   return claimed;
 }
 
-export function eveScheduleClient(
-  job: ScheduledJob,
-  chat: ChatRecord,
-  request?: Request,
-): Client {
+export function eveScheduleClient(job: ScheduledJob, chat: ChatRecord): Client {
   const secret = scheduleDispatchSecret();
   if (!secret) {
     throw new Error("A dispatch secret is not configured.");
   }
   return new Client({
-    host: appOrigin(request),
+    host: appOrigin(),
     headers: {
       [SCHEDULE_DISPATCH_SECRET_HEADER]: secret,
       [SCHEDULE_DISPATCH_USER_HEADER]: job.userId,
@@ -246,10 +237,9 @@ export function eveScheduleClient(
 export async function startScheduleSession(
   job: ScheduledJob,
   chat: ChatRecord,
-  request?: Request,
 ): Promise<{ sessionId: string }> {
-  const client = eveScheduleClient(job, chat, request);
-  const { message } = await buildScheduleDispatch(job, chat, request);
+  const client = eveScheduleClient(job, chat);
+  const { message } = await buildScheduleDispatch(job, chat);
   const { session } = await client.sessions.create({ message });
   return { sessionId: session.state.sessionId };
 }

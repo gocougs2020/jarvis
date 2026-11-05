@@ -20,7 +20,6 @@ const AI_GATEWAY_KEYS_URL =
   "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%2Fapi-keys&title=Get%20your%20AI%20Gateway%20key";
 const NEON_MARKETPLACE_URL = "https://vercel.com/marketplace/neon";
 const BLOB_DOCS_URL = "https://vercel.com/docs/storage/vercel-blob";
-const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 const RESEND_KEYS_URL = "https://resend.com/api-keys";
 
 type SetupItemId =
@@ -237,10 +236,10 @@ export function WorkspaceSetup({
               title="Voice input"
             >
               <p>
-                <code className="font-mono">OPENAI_API_KEY</code>
-                {status.hosted ? " on this Vercel project" : <> in <code className="font-mono">.env.local</code></>}
-                {" "}— transcription for spoken prompts. Chat still works without it. Create a key
-                at <OutLink href={OPENAI_KEYS_URL}>OpenAI API keys</OutLink>.
+                Voice input runs through AI Gateway with the same access as chat, so there is no
+                extra key. Change the model with{" "}
+                <code className="font-mono">models.transcription</code> in{" "}
+                <code className="font-mono">app.config.ts</code>.
               </p>
             </SetupStep>
             <SetupStep

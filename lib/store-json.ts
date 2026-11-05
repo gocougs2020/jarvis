@@ -240,6 +240,16 @@ export function getChatByEveSessionId(
   return chat ? normalizeChat(chat) : null;
 }
 
+export function listChatOwnersForEveSession(eveSessionId: string): string[] {
+  return [
+    ...new Set(
+      load()
+        .chats.filter((row) => row.sessionId === eveSessionId)
+        .map((row) => row.userId),
+    ),
+  ];
+}
+
 export function listChatEvents(chatId: string): ChatEventRecord[] {
   return load()
     .chatEvents.filter((event) => event.chatId === chatId)

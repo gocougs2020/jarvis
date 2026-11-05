@@ -1,5 +1,6 @@
 import { defineChannel, POST } from "eve/channels";
 import eve from "./eve";
+import { isInternalDispatchRequest } from "../../lib/internal-auth";
 
 type StartBody = {
   userId?: string;
@@ -12,8 +13,7 @@ type StartBody = {
 export default defineChannel({
   routes: [
     POST("/api/internal/email-sessions", async (request, { to }) => {
-      const secret = process.env.RESEND_WEBHOOK_SECRET ?? process.env.EMAIL_SESSION_SECRET;
-      if (!secret || request.headers.get("x-email-session-secret") !== secret) {
+      if (!isInternalDispatchRequest(request.headers.get("x-email-session-secret"))) {
         return new Response("Unauthorized", { status: 401 });
       }
 
@@ -37,6 +37,14 @@ export default defineChannel({
         },
       });
 
+      if (chatId) {
+        // Record the session on its chat here, not only in the caller, so a
+        // caller that timed out still leaves the chat linked to the running session.
+        const { updateChat } = await import("../../lib/store");
+        await updateChat(body.userId, chatId, { sessionId: session.id }).catch((error: unknown) =>
+          console.error("[email] could not record session on chat", error),
+        );
+      }
       return Response.json({ sessionId: session.id });
     }),
   ],

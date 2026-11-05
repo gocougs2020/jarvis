@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "You can only run schedules you created." }, { status: 403 });
   }
   try {
-    await dispatchJobNow(job, (claimed, chat) => startScheduleSession(claimed, chat, request));
+    await dispatchJobNow(job, (claimed, chat) => startScheduleSession(claimed, chat));
     const updated = (await listJobs(session.user.id)).find((item) => item.id === id);
     if (!updated) {
       return NextResponse.json({ deleted: true });

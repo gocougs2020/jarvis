@@ -1,4 +1,5 @@
 import { generateText, Output, type ModelMessage } from "ai";
+import type { AgentModelOptionsDefinition } from "eve";
 import { defineState } from "eve/context";
 import { z } from "zod";
 import { appConfig } from "../../app.config";
@@ -32,19 +33,35 @@ const ASSESS_SYSTEM = [
   "Prefer fast when thinking is unlikely to improve the answer. Use complex only when the query is clearly very complex.",
 ].join(" ");
 
+/**
+ * Provider options that turn on deeper reasoning for the "reason" and
+ * "complex" routes. eve's dynamic model selection only forwards
+ * providerOptions, so each provider's own knob is listed here. A provider
+ * that is not listed runs with its default reasoning, so swapping
+ * `models.chatLow` / `chatHigh` in app.config.ts never breaks a turn.
+ */
+export function highReasoningProviderOptions(
+  modelId: string,
+): AgentModelOptionsDefinition["providerOptions"] {
+  const provider = modelId.split("/")[0]?.toLowerCase();
+  switch (provider) {
+    case "openai":
+      return { openai: { reasoningEffort: "high" } };
+    case "anthropic":
+      return { anthropic: { thinking: { type: "enabled", budgetTokens: 16_000 } } };
+    case "xai":
+      return { xai: { reasoningEffort: "high" } };
+    default:
+      return undefined;
+  }
+}
+
 export function modelSelection(modelId: string, route: SessionChatRoute = "fast") {
+  const providerOptions = route === "fast" ? undefined : highReasoningProviderOptions(modelId);
   return {
     model: modelId,
     modelContextWindowTokens: turnContextWindowTokens(modelId),
-    ...(route === "fast"
-      ? {}
-      : {
-          modelOptions: {
-            providerOptions: {
-              openai: { reasoningEffort: "high" },
-            },
-          },
-        }),
+    ...(providerOptions ? { modelOptions: { providerOptions } } : {}),
   };
 }
 
@@ -95,7 +112,7 @@ export async function assessPromptRoute(text: string): Promise<SessionChatRoute>
     void recordGenerateTextUsage("routing", FAST_MODEL, result);
     return result.output.route;
   } catch (error) {
-    console.error("[session-model] route assessment failed; using Luna with reasoning", error);
+    console.error("[session-model] route assessment failed; using chatLow with reasoning", error);
     return "reason";
   }
 }

@@ -138,12 +138,7 @@ export function useVoiceRecording() {
       if (transcriptionError instanceof DOMException && transcriptionError.name === "AbortError") {
         return undefined;
       }
-      const message = transcriptionError instanceof Error ? transcriptionError.message : "";
-      setError(
-        message.includes("OPENAI_API_KEY")
-          ? "Voice input needs an OpenAI API key."
-          : "Couldn't transcribe that recording. Try again.",
-      );
+      setError("Couldn't transcribe that recording. Try again.");
       return undefined;
     } finally {
       setVoice("idle");

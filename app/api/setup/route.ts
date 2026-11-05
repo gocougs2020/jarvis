@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateAuthSecret } from "@/lib/auth-secret";
 import { normalizeEmailAddress } from "@/lib/email-users";
+import { isCrossSiteRequest } from "@/lib/internal-auth";
 import { clientKey, RATE_LIMIT_MESSAGE, rateLimit } from "@/lib/rate-limit";
 import { localEnvFilePath, upsertEnvFile, type SetupEnvWritableKey } from "@/lib/setup-env-file";
 import { canWriteLocalEnv, getSetupStatus } from "@/lib/setup-status";
@@ -19,6 +20,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (isCrossSiteRequest(request)) {
+    return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
+  }
   if (!rateLimit(clientKey(request, "setup"), { limit: 20, windowMs: 15 * 60 * 1000 })) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
   }
@@ -51,6 +55,12 @@ export async function POST(request: Request) {
 
   if (action === "save-secret") {
     const secret = body.secret?.trim() || generateAuthSecret();
+    if (!/^[A-Za-z0-9_\-+/=.]{32,512}$/.test(secret)) {
+      return NextResponse.json(
+        { error: "Use 32 or more letters, digits, or - _ + / = . characters." },
+        { status: 400 },
+      );
+    }
     writeLocalEnv("BETTER_AUTH_SECRET", secret);
     return NextResponse.json({
       secret,

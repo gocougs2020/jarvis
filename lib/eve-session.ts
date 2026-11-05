@@ -1,9 +1,9 @@
 import { Client } from "eve/client";
+import { selfOrigin } from "@/lib/internal-auth";
 
 export function eveClientFromRequest(request: Request): Client {
-  const origin = requestOrigin(request);
   return new Client({
-    host: origin,
+    host: selfOrigin(),
     headers: {
       cookie: request.headers.get("cookie") ?? "",
     },
@@ -22,11 +22,4 @@ export async function teardownEveSession(request: Request, sessionId: string): P
   } catch {
     // Already retired or unknown is a successful teardown.
   }
-}
-
-function requestOrigin(request: Request): string {
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return new URL(request.url).origin;
 }

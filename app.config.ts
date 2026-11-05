@@ -41,6 +41,7 @@ export type AppConfig = {
     compaction: string;
     embeddings: string;
     imageGeneration: string;
+    /** AI Gateway transcription model for voice input (same credentials as chat). */
     transcription: string;
     contextWindows: Readonly<Record<string, number>>;
   };
@@ -57,6 +58,19 @@ export type AppConfig = {
     reminderContextSnippetChars: number;
   };
   skills: Record<string, AppSkillConfig>;
+  security: {
+    /**
+     * Outbound network for the agent's sandbox (the `bash` tool).
+     * `"deny-all"` (default) blocks egress, so text injected through an email,
+     * web page, or shared file cannot make the sandbox send your data out with
+     * curl. Web access still works through the `web_search` and `web_fetch`
+     * tools, which run in the app. Use `"allow-all"`, or a hostname list such as
+     * `["pypi.org", "files.pythonhosted.org"]`, if your skills need packages or
+     * APIs from inside the sandbox. Docker (local) only supports allow-all or
+     * deny-all, so a hostname list means deny-all there.
+     */
+    sandboxNetwork: "deny-all" | "allow-all" | readonly string[];
+  };
   setup: {
     /**
      * Signed-in checklist at `/settings/setup`. Set to `false` to hide the
@@ -89,7 +103,7 @@ export const appConfig = {
     compaction: "openai/gpt-5.6-luna",
     embeddings: "openai/text-embedding-3-small",
     imageGeneration: "openai/gpt-image-2",
-    transcription: "gpt-transcribe",
+    transcription: "openai/gpt-transcribe",
     contextWindows: {
       "openai/gpt-5.6-luna-fast": 1_050_000,
       "openai/gpt-5.6-luna": 1_050_000,
@@ -196,6 +210,10 @@ export const appConfig = {
       title: "Remind",
       emoji: "⏰",
     },
+  },
+
+  security: {
+    sandboxNetwork: "deny-all",
   },
 
   setup: {

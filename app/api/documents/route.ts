@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   if (error || !session) return error;
   const params = new URL(request.url).searchParams;
   const chatId = params.get("chatId") ?? undefined;
-  const query = params.get("q")?.trim() ?? "";
+  const query = params.get("q")?.trim().slice(0, 500) ?? "";
   const folderId = params.get("folderId");
 
   try {

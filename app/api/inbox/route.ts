@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   if (error || !session) return error;
 
   const params = new URL(request.url).searchParams;
-  const query = params.get("q")?.trim() ?? "";
+  const query = params.get("q")?.trim().slice(0, 500) ?? "";
   const direction = asDirection(params.get("direction"));
   const id = params.get("id")?.trim();
 

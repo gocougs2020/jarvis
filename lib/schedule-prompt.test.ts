@@ -3,6 +3,8 @@ import {
   isNudgeReminderSchedule,
   isRemindDoSchedule,
   isReminderSchedule,
+  parseSchedulePrompt,
+  remindFollowThroughPrompt,
   scheduleDispatchMessage,
   scheduleSessionUrl,
 } from "@/lib/schedule-prompt";
@@ -87,5 +89,14 @@ describe("scheduleSessionUrl", () => {
     expect(scheduleSessionUrl("abc", "https://app.example.com/")).toBe(
       "https://app.example.com/s/abc",
     );
+  });
+});
+
+describe("remindFollowThroughPrompt", () => {
+  it("queues a /remind follow-through, not a nudge", () => {
+    const prompt = remindFollowThroughPrompt("The account owner emailed: book the venue.");
+    expect(isRemindDoSchedule(prompt)).toBe(true);
+    expect(isNudgeReminderSchedule(prompt)).toBe(false);
+    expect(parseSchedulePrompt(prompt).brief).toContain("book the venue");
   });
 });

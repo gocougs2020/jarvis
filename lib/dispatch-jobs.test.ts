@@ -36,11 +36,14 @@ describe("scheduleDispatchSecret", () => {
     expect(scheduleDispatchSecret()).toBe("email");
   });
 
-  it("falls back to BETTER_AUTH_SECRET", () => {
+  it("derives from BETTER_AUTH_SECRET instead of sending it raw", () => {
     delete env().EMAIL_SESSION_SECRET;
-    delete env().RESEND_WEBHOOK_SECRET;
+    env().RESEND_WEBHOOK_SECRET = "whsec_visible_in_resend";
     env().BETTER_AUTH_SECRET = "auth";
-    expect(scheduleDispatchSecret()).toBe("auth");
+    const secret = scheduleDispatchSecret();
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(secret).not.toBe("auth");
+    expect(secret).not.toBe("whsec_visible_in_resend");
   });
 });
 

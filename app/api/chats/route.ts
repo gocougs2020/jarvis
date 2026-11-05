@@ -7,7 +7,7 @@ import { normalizeChatSource } from "@/lib/types";
 export async function GET(request: Request) {
   const { session, error } = await requireApiSession(request);
   if (error || !session) return error;
-  const query = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const query = new URL(request.url).searchParams.get("q")?.trim().slice(0, 500) ?? "";
   if (query) {
     return NextResponse.json({ chats: await searchUserSessions(session.user.id, query) });
   }

@@ -62,7 +62,8 @@ export function getSetupStatus(): SetupStatus {
     database: hasNeon(),
     blob: hasBlobStore(),
     hosted,
-    voice: hasText(process.env.OPENAI_API_KEY),
+    // Voice runs through AI Gateway, so it is ready whenever chat is.
+    voice: hasText(process.env.AI_GATEWAY_API_KEY) || hosted,
     inbox: hasText(process.env.RESEND_API_KEY) && hasText(process.env.RESEND_FROM_EMAIL),
     accountUsage: hasText(process.env.ALLOWED_ACCOUNT_USAGE_EMAILS),
     canWriteLocalEnv: canWriteLocalEnv(),

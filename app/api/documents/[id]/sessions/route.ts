@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/api";
-import { attachDocument, detachDocument, listDocumentChats } from "@/lib/store";
+import { attachDocument, detachDocument, getChat, listDocumentChats } from "@/lib/store";
 
 export async function POST(
   request: Request,
@@ -28,6 +28,9 @@ export async function DELETE(
   const body = (await request.json()) as { chatId?: string };
   if (!body.chatId) {
     return NextResponse.json({ error: "chatId is required." }, { status: 400 });
+  }
+  if (!(await getChat(session.user.id, body.chatId))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   await detachDocument(session.user.id, id, body.chatId);
   return NextResponse.json({ chats: await listDocumentChats(session.user.id, id) });

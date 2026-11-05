@@ -71,6 +71,16 @@ export function normalizeSchedulePrompt(prompt: string): string {
 
 export const REMIND_SKILL_SLUG = "remind";
 
+/**
+ * A `/remind` follow-through job for work that could not start right away
+ * (for example an emailed request when the session start timed out). At fire
+ * time the agent checks prior sessions first, so a request that did start
+ * after all is not done twice.
+ */
+export function remindFollowThroughPrompt(brief: string): string {
+  return `${skillMention(REMIND_SKILL_SLUG)}\n\n${SCHEDULE_UNATTENDED}\n\n${brief.trim()}`;
+}
+
 export function isNudgeReminderSchedule(prompt: string): boolean {
   return !parseSchedulePrompt(prompt).skill;
 }

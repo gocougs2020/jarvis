@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "An opinionated but flexible, deployable workspace for quickly building AI agents.",
   "author": "Logan Dziuk",
   "license": "MIT",
