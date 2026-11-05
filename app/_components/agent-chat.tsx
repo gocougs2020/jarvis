@@ -113,39 +113,33 @@ const idleComposer: SessionComposer = {
 
 const STREAM_CHECKPOINT_MS = 3_000;
 
-/**
- * Stored events are compacted, so they do not carry every event id the eve
- * server streamed. Resuming replays that stream from the start and dedupes by
- * id, so hydrating compacted events would duplicate earlier replies. When a
- * turn will be resumed, start empty and let the replay rebuild the transcript.
- */
-function resumeHydration(
-  sessionId: string | null | undefined,
-  events: readonly MessageStreamEvent[] | undefined,
-): MessageStreamEvent[] {
-  if (shouldResumeEveSession(sessionId, events)) return [];
-  return [...(events ?? [])];
-}
-
 export function AgentChat(props: AgentChatProps) {
   const [storeGeneration, setStoreGeneration] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [composer, setComposer] = useState<SessionComposer>(idleComposer);
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const [canvasHost, setCanvasHost] = useState<HTMLDivElement | null>(null);
-  const [resume, setResume] = useState(() =>
-    shouldResumeEveSession(props.chat?.sessionId, props.initialEvents),
-  );
-  const hydratedEventsRef = useRef(resumeHydration(props.chat?.sessionId, props.initialEvents));
-  const hydratedChatKeyRef = useRef(props.chat?.id ?? "draft");
+  // Resume follows the chat on screen (switching chats in the sidebar does not
+  // remount this component). Only a stuck resume turns it off, for that chat.
+  const [resumeOffFor, setResumeOffFor] = useState<string>();
+  const chatKey = props.chat?.id ?? "draft";
+  const resume =
+    resumeOffFor !== chatKey && shouldResumeEveSession(props.chat?.sessionId, props.initialEvents);
+  // Stored events are compacted and lack the ids of collapsed deltas. Resuming
+  // replays the server stream from the start and dedupes by id, so hydrating
+  // them would duplicate earlier replies: when resuming, start empty and let
+  // the replay rebuild the transcript. Keyed to `resume` so the two never
+  // disagree (an emptied transcript always replays).
+  const hydrationFor = (resuming: boolean) => (resuming ? [] : [...(props.initialEvents ?? [])]);
+  const hydratedEventsRef = useRef(hydrationFor(resume));
+  const hydratedChatKeyRef = useRef(chatKey);
   const remountingRef = useRef(false);
   const retryRef = useRef<PromptInputMessage>(undefined);
   const landing = props.compose === "landing" && !props.chat;
-  const chatKey = props.chat?.id ?? "draft";
   if (hydratedChatKeyRef.current !== chatKey) {
     hydratedChatKeyRef.current = chatKey;
     // eslint-disable-next-line react-hooks/refs -- reset hydration when the chat changes
-    hydratedEventsRef.current = resumeHydration(props.chat?.sessionId, props.initialEvents);
+    hydratedEventsRef.current = hydrationFor(resume);
   }
 
   const onHydrateEvents = useCallback((events: readonly MessageStreamEvent[]) => {
@@ -156,7 +150,7 @@ export function AgentChat(props: AgentChatProps) {
     if (retry) retryRef.current = retry;
     if (remountingRef.current && !retry) return;
     remountingRef.current = true;
-    setResume(false);
+    setResumeOffFor(hydratedChatKeyRef.current);
     setStoreGeneration((value) => value + 1);
   }, []);
 
