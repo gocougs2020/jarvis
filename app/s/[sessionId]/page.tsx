@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { compactStreamEvents } from "@/lib/chat-event-compaction";
 import type { MessageStreamEvent } from "eve/client";
 import { SessionClient } from "@/app/s/[sessionId]/session-client";
 import { requireSession } from "@/lib/session";
@@ -31,7 +32,7 @@ export default async function SessionPage({
       from={from}
       initialCanvasOpen={docs === "1" || Boolean(doc)}
       initialDocumentId={doc}
-      initialEvents={events.map((row) => row.event) as MessageStreamEvent[]}
+      initialEvents={compactStreamEvents(events.map((row) => row.event) as MessageStreamEvent[])}
     />
   );
 }

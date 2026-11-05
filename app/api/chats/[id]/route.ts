@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { compactStreamEvents } from "@/lib/chat-event-compaction";
 import { requireApiSession } from "@/lib/api";
 import { teardownEveSession } from "@/lib/eve-session";
 import {
@@ -20,7 +21,9 @@ export async function GET(
   if (!chat) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({
     chat,
-    events: (await listChatEvents(id)).map((row) => row.event),
+    events: compactStreamEvents(
+      (await listChatEvents(id)).map((row) => row.event as { type: string }),
+    ),
   });
 }
 

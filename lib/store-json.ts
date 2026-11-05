@@ -265,6 +265,25 @@ export function upsertChatEvent(chatId: string, index: number, event: unknown) {
   save(data);
 }
 
+export function writeChatEventsTail(
+  chatId: string,
+  fromIndex: number,
+  events: unknown[],
+  total: number,
+) {
+  const data = load();
+  const written = new Map(
+    chatEventRecords(chatId, events, fromIndex).map((row) => [row.index, row]),
+  );
+  data.chatEvents = [
+    ...data.chatEvents.filter(
+      (event) => event.chatId !== chatId || (event.index < total && !written.has(event.index)),
+    ),
+    ...written.values(),
+  ];
+  save(data);
+}
+
 export function replaceChatEvents(chatId: string, events: unknown[]) {
   const data = load();
   data.chatEvents = [
@@ -400,13 +419,18 @@ export function completeJob(job: ScheduledJob): boolean {
   return true;
 }
 
-export function releaseJob(job: ScheduledJob, error: string, retryAt?: Date | null): boolean {
+export function releaseJob(
+  job: ScheduledJob,
+  error: string,
+  retryAt?: Date | null,
+  disable = false,
+): boolean {
   const data = load();
   const index = data.jobs.findIndex((row) => row.id === job.id);
   if (index === -1 || !holdsJobLease(data.jobs[index], job)) return false;
   data.jobs[index] = {
     ...data.jobs[index],
-    ...releasedJobFields(error, retryAt?.toISOString() ?? null),
+    ...releasedJobFields(error, retryAt?.toISOString() ?? null, undefined, disable),
   };
   save(data);
   return true;

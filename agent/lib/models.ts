@@ -7,7 +7,6 @@ import { recordGenerateTextUsage } from "../../lib/record-usage";
 import { resolveChatForEveSession } from "../../lib/session-memory";
 import { getUserSettings } from "../../lib/store";
 import { turnContextWindowTokens } from "../../lib/token-budget";
-import { runWithUsageScope } from "../../lib/usage-scope";
 
 export const FAST_MODEL = appConfig.models.chatFast;
 export const LOW_MODEL = appConfig.models.chatLow;
@@ -50,6 +49,7 @@ export function highReasoningProviderOptions(
     case "anthropic":
       return { anthropic: { thinking: { type: "enabled", budgetTokens: 16_000 } } };
     case "xai":
+    case "spacexai":
       return { xai: { reasoningEffort: "high" } };
     default:
       return undefined;
@@ -95,9 +95,23 @@ export function latestUserText(messages: readonly ModelMessage[]): string {
   return "";
 }
 
-export async function assessPromptRoute(text: string): Promise<SessionChatRoute> {
+/**
+ * A first prompt this short ("hi", "thanks", "what's 2+2") goes to the fast
+ * model without a routing call, which saves a model round trip before the
+ * first token.
+ */
+export function isTrivialPrompt(text: string): boolean {
+  const prompt = text.trim();
+  return prompt.length > 0 && prompt.length < 16 && prompt.split(/\s+/).length <= 3;
+}
+
+export async function assessPromptRoute(
+  text: string,
+  attribution?: Promise<{ readonly chatId?: string | null; readonly userId?: string }>,
+): Promise<SessionChatRoute> {
   const prompt = text.trim().slice(0, ASSESS_PROMPT_LIMIT);
   if (!prompt) return "fast";
+  if (isTrivialPrompt(prompt)) return "fast";
 
   try {
     const result = await generateText({
@@ -107,9 +121,11 @@ export async function assessPromptRoute(text: string): Promise<SessionChatRoute>
       prompt,
       reasoning: "none",
       system: ASSESS_SYSTEM,
-      timeout: 8_000,
+      timeout: 4_000,
     });
-    void recordGenerateTextUsage("routing", FAST_MODEL, result);
+    void (attribution ?? Promise.resolve(undefined))
+      .catch(() => undefined)
+      .then((owner) => recordGenerateTextUsage("routing", FAST_MODEL, result, owner));
     return result.output.route;
   } catch (error) {
     console.error("[session-model] route assessment failed; using chatLow with reasoning", error);
@@ -132,13 +148,19 @@ export async function resolveSessionModelSelection(
   if (!text.trim()) return modelSelectionForRoute("fast");
 
   const userId = attribution?.userId;
-  const chat =
+  // The chat lookup is only for usage attribution, so it runs alongside the
+  // routing call instead of in front of it.
+  const owner =
     userId && attribution.eveSessionId
-      ? await resolveChatForEveSession(userId, attribution.eveSessionId, attribution.chatId)
-      : null;
-  const route = userId
-    ? await runWithUsageScope({ userId, chatId: chat?.id }, () => assessPromptRoute(text))
-    : await assessPromptRoute(text);
+      ? resolveChatForEveSession(userId, attribution.eveSessionId, attribution.chatId).then(
+          (chat) => ({ chatId: chat?.id ?? attribution.chatId, userId }),
+          // Attribution is best-effort; never leave this rejection unhandled.
+          () => ({ chatId: attribution.chatId, userId }),
+        )
+      : userId
+        ? Promise.resolve({ chatId: attribution.chatId, userId })
+        : undefined;
+  const route = await assessPromptRoute(text, owner);
   sessionChatRoute.update(() => route);
   return modelSelectionForRoute(route);
 }

@@ -183,8 +183,12 @@ export function chatEventRecord(chatId: string, index: number, event: unknown): 
   return { id: chatEventId(chatId, index), chatId, index, event };
 }
 
-export function chatEventRecords(chatId: string, events: unknown[]): ChatEventRecord[] {
-  return events.map((event, index) => chatEventRecord(chatId, index, event));
+export function chatEventRecords(
+  chatId: string,
+  events: unknown[],
+  startIndex = 0,
+): ChatEventRecord[] {
+  return events.map((event, index) => chatEventRecord(chatId, startIndex + index, event));
 }
 
 export function newSkillRecord(
@@ -319,12 +323,18 @@ export function completeJobMutation(job: ScheduledJob):
   };
 }
 
-export function releasedJobFields(error: string, retryAt: string | null, stamp = nowIso()) {
+export function releasedJobFields(
+  error: string,
+  retryAt: string | null,
+  stamp = nowIso(),
+  disable = false,
+) {
   return {
     leaseToken: null,
     leaseUntil: null,
     lastError: error,
     ...(retryAt ? { nextRunAt: retryAt } : {}),
+    ...(disable ? { enabled: false } : {}),
     updatedAt: stamp,
   };
 }

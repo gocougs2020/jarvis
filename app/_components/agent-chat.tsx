@@ -32,6 +32,8 @@ import { AppHeader } from "@/components/app-header";
 import { BrandHero } from "@/components/brand-hero";
 import { HomePrompt } from "@/components/home-prompt";
 import { appConfig } from "@/app.config";
+import { compactStreamEvents, firstChangedIndex } from "@/lib/chat-event-compaction";
+import { isVoiceModeOn, speakText } from "@/lib/voice-mode";
 import { SessionDocumentCanvas } from "@/components/session-document-canvas";
 import { SessionEmptyCanvas } from "@/components/session-empty-canvas";
 import { MobileSessionSheet } from "@/components/mobile-session-sheet";
@@ -52,6 +54,7 @@ import {
 } from "@/lib/start-web-session";
 import {
   hasSettledSessionTail,
+  latestTurnReplyText,
   hasTerminalSessionTail,
   isInactiveSessionError,
   sessionContextUsage,
@@ -107,6 +110,8 @@ const idleComposer: SessionComposer = {
   submit: () => undefined,
   submitting: false,
 };
+
+const STREAM_CHECKPOINT_MS = 3_000;
 
 export function AgentChat(props: AgentChatProps) {
   const [storeGeneration, setStoreGeneration] = useState(0);
@@ -320,8 +325,7 @@ function AgentChatSession({
   };
 
   const pollSessionCitations = () => {
-    void refreshSessionCitations();
-    for (const delay of [800, 1800, 3600]) {
+    for (const delay of [1500, 4000]) {
       window.setTimeout(() => {
         void refreshSessionCitations();
       }, delay);
@@ -392,18 +396,56 @@ function AgentChatSession({
     );
   };
 
+  // What the server already holds for this chat, compacted. Each checkpoint
+  // writes only the rows that changed, in one request, instead of one request
+  // (and several database writes) per streamed token.
+  // Starts empty, not from `initialEvents`: after a remount those are this
+  // tab's events and may include rows the server never got. The first
+  // checkpoint of a mount writes the whole compacted log (also compacting a
+  // chat saved before compaction existed); later ones write only the tail.
+  const storedEventsRef = useRef<MessageStreamEvent[]>([]);
   const persistInFlight = useRef(false);
-  const persistQueued = useRef<MessageStreamEvent[] | null>(null);
+  const persistQueued = useRef<{
+    events: readonly MessageStreamEvent[];
+    final: boolean;
+    /** Only an intentional reset may shrink the stored log. */
+    reset?: boolean;
+  } | null>(null);
+  const checkpointTimer = useRef<number | undefined>(undefined);
 
   const flushPersistedEvents = () => {
     if (persistInFlight.current) return;
-    const events = persistQueued.current;
-    if (!events) return;
+    const queued = persistQueued.current;
+    if (!queued) return;
     const chatId = activeChatRef.current?.id;
     if (!chatId) return;
     persistQueued.current = null;
+    // Only an intentional reset may write an empty log; an empty snapshot
+    // otherwise means "nothing yet", not "delete everything".
+    if (queued.events.length === 0 && !queued.reset) return;
+    const next = compactStreamEvents(queued.events);
+    const stored = storedEventsRef.current;
+    const fromIndex = firstChangedIndex(stored, next, isSameStreamEvent);
+    // An older or empty snapshot (a prefix of what is stored) must not trim the log.
+    const stale = !queued.reset && fromIndex === next.length && next.length < stored.length;
+    const unchanged = fromIndex === next.length && stored.length === next.length;
+    if (stale || (unchanged && !queued.final)) {
+      if (queued.final && next.length > 0) {
+        persistQueued.current = { events: stored, final: true };
+        flushPersistedEvents();
+      }
+      return;
+    }
     persistInFlight.current = true;
-    void fetchJson(`/api/chats/${chatId}/events`, "POST", { events })
+    void fetchJson(`/api/chats/${chatId}/events`, "POST", {
+      events: next.slice(fromIndex),
+      final: queued.final,
+      fromIndex,
+      total: next.length,
+    })
+      .then((response) => {
+        if (response.ok) storedEventsRef.current = next;
+      })
       .catch(() => undefined)
       .finally(() => {
         persistInFlight.current = false;
@@ -411,36 +453,27 @@ function AgentChatSession({
       });
   };
 
-  const persistEvents = (events: readonly MessageStreamEvent[]) => {
-    persistQueued.current = mergeQueuedEvents(persistQueued.current, events);
+  const persistEvents = (events: readonly MessageStreamEvent[], final = false) => {
+    window.clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = undefined;
+    persistQueued.current = {
+      events,
+      final: final || Boolean(persistQueued.current?.final),
+      reset: persistQueued.current?.reset,
+    };
     flushPersistedEvents();
   };
 
-  const upsertQueue = useRef<{ index: number; event: MessageStreamEvent }[]>([]);
-  const upsertInFlight = useRef(false);
-
-  const flushUpsertedEvents = () => {
-    if (upsertInFlight.current) return;
-    const next = upsertQueue.current.shift();
-    if (!next) return;
-    const chatId = activeChatRef.current?.id;
-    if (!chatId) {
-      upsertQueue.current.unshift(next);
-      return;
-    }
-    upsertInFlight.current = true;
-    void fetchJson(`/api/chats/${chatId}/events`, "POST", next)
-      .catch(() => undefined)
-      .finally(() => {
-        upsertInFlight.current = false;
-        if (upsertQueue.current.length > 0) flushUpsertedEvents();
-      });
+  /** While a turn streams, checkpoint every few seconds so a reload can resume it. */
+  const scheduleCheckpoint = () => {
+    if (checkpointTimer.current !== undefined) return;
+    checkpointTimer.current = window.setTimeout(() => {
+      checkpointTimer.current = undefined;
+      persistEvents(eventsRef.current);
+    }, STREAM_CHECKPOINT_MS);
   };
 
-  const persistEvent = (index: number, event: MessageStreamEvent) => {
-    upsertQueue.current.push({ index, event });
-    flushUpsertedEvents();
-  };
+  useEffect(() => () => window.clearTimeout(checkpointTimer.current), []);
 
   const agent = useEveAgent({
     initialEvents,
@@ -455,7 +488,7 @@ function AgentChatSession({
     onEvent(event) {
       eventsRef.current = [...eventsRef.current, event];
       onHydrateEvents(eventsRef.current);
-      persistEvent(eventsRef.current.length - 1, event);
+      scheduleCheckpoint();
       if (event.type === "action.result") {
         const documents = documentsFromToolOutput(
           "output" in event.data ? event.data.output : undefined,
@@ -484,11 +517,16 @@ function AgentChatSession({
       if (liveTurnRef.current) {
         liveTurnRef.current = false;
         markSessionActivityRef.current();
+        // Voice mode reads the reply aloud, but only for a turn just sent from
+        // this tab, never when replaying or resuming an older one.
+        if (isVoiceModeOn()) {
+          void speakText(latestTurnReplyText(snapshot.events), activeChatRef.current?.id);
+        }
       }
       void refreshSessionCitations();
       // Persist off the store's completion path so stringify/fetch cannot
       // keep the composer locked after the turn has already settled.
-      window.setTimeout(() => persistEvents(snapshot.events), 0);
+      window.setTimeout(() => persistEvents(snapshot.events, true), 0);
     },
     onError(error) {
       sendErrorRef.current = error.message;
@@ -556,9 +594,10 @@ function AgentChatSession({
 
   const startFreshSession = () => {
     eventsRef.current = [];
-    // Bypass mergeQueuedEvents so an intentional reset is not treated as an
-    // empty onFinish snapshot that should preserve the prior log.
-    persistQueued.current = [];
+    // An intentional reset is the one write allowed to empty the stored log.
+    window.clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = undefined;
+    persistQueued.current = { events: [], final: false, reset: true };
     flushPersistedEvents();
     agent.reset();
     persistSession(undefined);
@@ -635,7 +674,7 @@ function AgentChatSession({
     setCancellationError(undefined);
     try {
       await agent.cancel();
-      persistEvents(eventsRef.current);
+      persistEvents(eventsRef.current, true);
     } catch (error: unknown) {
       setCancellationError(toErrorMessage(error));
     }
@@ -1220,38 +1259,6 @@ function isSameStreamEvent(left: MessageStreamEvent, right: MessageStreamEvent):
   } catch {
     return false;
   }
-}
-
-function isEventPrefix(
-  events: readonly MessageStreamEvent[],
-  prefix: readonly MessageStreamEvent[],
-): boolean {
-  return prefix.every((event, index) => {
-    const candidate = events[index];
-    return candidate !== undefined && isSameStreamEvent(event, candidate);
-  });
-}
-
-function mergeQueuedEvents(
-  queued: MessageStreamEvent[] | null,
-  incoming: readonly MessageStreamEvent[],
-): MessageStreamEvent[] {
-  if (!queued) return [...incoming];
-
-  // Incoming is a newer full snapshot that already includes the queued list.
-  if (incoming.length >= queued.length && isEventPrefix(incoming, queued)) {
-    return [...incoming];
-  }
-
-  // Queued snapshot is already newer (or incoming is empty); keep it rather
-  // than shrinking the log. An empty onFinish/reset snapshot is a prefix of
-  // any queued list, so previously queued events are preserved.
-  if (queued.length > incoming.length && isEventPrefix(queued, incoming)) {
-    return queued;
-  }
-
-  // Distinct batches arrived while a flush was in flight — keep both.
-  return [...queued, ...incoming];
 }
 
 function getLatestTurnFailure(

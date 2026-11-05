@@ -20,3 +20,13 @@ describe("highReasoningProviderOptions", () => {
     expect(modelSelection("openai/gpt-5.6-luna-fast", "fast")).not.toHaveProperty("modelOptions");
   });
 });
+
+describe("isTrivialPrompt", () => {
+  it("skips routing only for very short prompts", async () => {
+    const { isTrivialPrompt } = await import("./models");
+    expect(isTrivialPrompt("hi")).toBe(true);
+    expect(isTrivialPrompt("thanks!")).toBe(true);
+    expect(isTrivialPrompt("Compare these two vendor quotes")).toBe(false);
+    expect(isTrivialPrompt("")).toBe(false);
+  });
+});

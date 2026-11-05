@@ -20,6 +20,7 @@ export const USAGE_PURPOSE_LABELS: Readonly<Record<UsagePurpose, string>> = {
   embeddings: "Embeddings",
   instructions: "Instructions",
   transcription: "Voice transcription",
+  speech: "Voice replies",
   image: "Image generation",
   web_search: "Web search",
   email: "Email",
@@ -34,6 +35,7 @@ const MODEL_USAGE_PURPOSES = new Set<UsagePurpose>([
   "embeddings",
   "instructions",
   "transcription",
+  "speech",
   "image",
   "email",
 ]);

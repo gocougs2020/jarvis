@@ -229,16 +229,35 @@ export async function captureCompletedTurn({
   });
 }
 
+/**
+ * Greetings, thanks, and one- or two-word replies never benefit from related
+ * sessions, and recall costs an LLM call, two embeddings, and two database
+ * reads before the model can start. Skip it for them.
+ */
+export function promptNeedsRecall(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  if (trimmed.length < 12) return false;
+  return trimmed.split(/\s+/).length >= 3;
+}
+
 export async function recallRelatedSessions(
   userId: string,
   prompt: string,
-  options?: { excludeChatId?: string | null },
+  options?: {
+    /** May be a promise, so the chat lookup overlaps the embedding calls. */
+    excludeChatId?: string | null | Promise<string | null | undefined>;
+    /** Usage attribution while `excludeChatId` is still resolving. */
+    usageChatId?: string | null;
+  },
 ): Promise<{ citations: SessionCitation[]; content: string }> {
   const trimmed = prompt.trim();
-  if (!trimmed) return { citations: [], content: "" };
+  if (!promptNeedsRecall(trimmed)) return { citations: [], content: "" };
 
+  const usageChatId =
+    options?.usageChatId ??
+    (typeof options?.excludeChatId === "string" ? options.excludeChatId : undefined);
   const [hypothetical, promptEmbedding] = await runWithUsageScope(
-    { userId, chatId: options?.excludeChatId },
+    { userId, chatId: usageChatId },
     () =>
       Promise.all([
         generateHypotheticalResponse(trimmed),
@@ -248,18 +267,19 @@ export async function recallRelatedSessions(
   const queryEmbeddings = [promptEmbedding].filter((value): value is number[] => Boolean(value));
   if (hypothetical) {
     const [hypotheticalEmbedding] = await runWithUsageScope(
-      { userId, chatId: options?.excludeChatId },
+      { userId, chatId: usageChatId },
       () => embedTexts([hypothetical]),
     );
     if (hypotheticalEmbedding) queryEmbeddings.push(hypotheticalEmbedding);
   }
   if (queryEmbeddings.length === 0) return { citations: [], content: "" };
 
+  const excludeChatId = await options?.excludeChatId;
   const matches = await searchUserEmbeddings({
     userId,
     queryEmbeddings,
     kinds: SESSION_MEMORY_KINDS,
-    excludeSourceIds: options?.excludeChatId ? [options.excludeChatId] : [],
+    excludeSourceIds: excludeChatId ? [excludeChatId] : [],
     limit: relatedCandidateLimit,
     minScore: RELATED_SESSION_MIN_SCORE,
   });

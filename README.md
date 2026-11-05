@@ -23,7 +23,7 @@ Product defaults live in **[`app.config.ts`](./app.config.ts)**. Secrets and who
 - Durable sessions with stable URLs
 - First-prompt model routing
 - Durable and scalable memory (sticky notes + embeddings)
-- Voice-to-text input
+- Voice input, plus a hands-free voice mode that reads replies aloud
 - Private file storage
 - Inbox for agent mail (send and receive)
 - Built-in and user-authored skills
@@ -272,11 +272,23 @@ Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a ses
 | `compaction` | Context-window checkpoints | `openai/gpt-5.6-luna` |
 | `embeddings` | Session, file, and inbox email embeddings | `openai/text-embedding-3-small` |
 | `imageGeneration` | `generate_image` | `openai/gpt-image-2` |
-| `transcription` | Voice input (AI Gateway, same credentials as chat) | `openai/gpt-transcribe` |
+| `transcription` | Voice input (AI Gateway, same credentials as chat) | `spacexai/grok-stt` |
+| `speech` | Spoken replies in voice mode (AI Gateway text-to-speech) | `spacexai/grok-tts` |
 
 Any AI Gateway model ID works, including other providers (`anthropic/…`, `google/…`). The `reason` and `complex` routes turn on each provider's own deeper-reasoning option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults.
 
 If you change a chat model ID, add its context window under `models.contextWindows` (tokens). Unknown IDs fall back to `1_050_000`. Compaction and the session context chip use `min(256_000, 90% of that catalog size)` so a million-token model does not fill its full window.
+
+### Voice mode
+
+```ts
+voice: {
+  speechVoice: "ara",
+  maxSpeechChars: 2_000,
+},
+```
+
+The waveform button next to the mic turns on voice mode for that browser. A finished recording is sent as the prompt right away (transcribed by `models.transcription`), and when the turn settles the reply is read aloud by `models.speech` in `speechVoice` (Grok TTS voices: `ara`, `eve`, `leo`, `rex`, `sal`). Markdown, code blocks, links, and citation markers are dropped first, and replies longer than `maxSpeechChars` are cut at a sentence boundary. Tap the mic again to interrupt playback. Voice mode keeps the full agent (tools, files, memory) in the loop; it is not a separate realtime speech-to-speech model.
 
 ### In-app setup page
 
@@ -301,7 +313,7 @@ memory: {
 },
 ```
 
-HyDE (a hypothetical reply used only for retrieval) is aborted after `hydeTimeoutMs`. Recall then searches with whatever query embeddings are ready — usually just the prompt — and continues the turn with no related sessions if nothing ranks above `relatedSessionMinScore`.
+Prompts shorter than three words (greetings, "thanks") skip recall entirely, and the chat lookup runs alongside the embedding calls rather than before them. HyDE (a hypothetical reply used only for retrieval) is aborted after `hydeTimeoutMs`. Recall then searches with whatever query embeddings are ready — usually just the prompt — and continues the turn with no related sessions if nothing ranks above `relatedSessionMinScore`.
 
 Nudge reminder emails do **not** use that related-session path. At fire time the app embeds the reminder brief only (no HyDE) and searches session titles/descriptions/prompts plus file titles/content. A hit must clear `reminderContextMinScore`. A body-only hit (prompt text or file content, no title match) must also clear `reminderContextBodyMinScore`. At most one session and one file are attached, each as a title, a short snippet (`reminderContextSnippetChars`), and a link. A thin brief (“remind me tomorrow”) skips retrieval. Nothing matched is the success case when the note is not clearly about this reminder.
 
@@ -316,6 +328,16 @@ Costs use the catalog in `lib/model-prices.ts` (OpenAI list rates, including cac
 Sessions are unique conversations. Turns are unique user/agent exchanges (a turn can make several model calls plus searches). Model calls exclude web search; search is a separate per-request fee.
 
 Not in this ledger: Vercel hosting/functions, Neon compute and storage, Vercel Blob for files, and Resend delivery. Those are platform or vendor bills, not token-metered model calls.
+
+### Keeping Neon cheap
+
+Neon bills compute for every minute the database is awake, at the compute size it is running. The app is written so an idle workspace lets it sleep:
+
+- **Schema bootstrap runs once per schema change**, not on every cold start. A fingerprint of `migrateNeonSchema` in `lib/db/index.ts` is stored in `app_schema_version`; a cold start reads that one row and skips the ~85 DDL statements when it matches. Edit the migration freely, and it reruns once on the next deploy.
+- **Chat transcripts are checkpointed, not streamed token by token.** The browser saves the event log every few seconds while a turn streams, and once when it settles, writing only rows that changed. Runs of streaming deltas are collapsed first (`lib/chat-event-compaction.ts`), so a long reply is a handful of rows instead of thousands. Usage is tallied once per turn.
+- **A failing schedule does not retry every tick.** A recurring job skips to its next slot and keeps the error on the Schedules page; a one-off retries every five minutes and pauses after six hours.
+
+In the Neon console, set the production compute to **0.25 CU minimum** (autoscaling up to 1 CU is plenty for a personal workspace) and leave scale-to-zero on. A 1 CU minimum bills four times as much for every awake minute. Anything else holding the same `DATABASE_URL` (a local `npm run dev` or `eve start` pointed at production, a SQL client left open) keeps it awake too.
 
 ## Environment variables
 

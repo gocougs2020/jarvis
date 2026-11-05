@@ -63,6 +63,7 @@ export const listChatOwnersForEveSession = delegate("listChatOwnersForEveSession
 export const listChatEvents = delegate("listChatEvents");
 export const upsertChatEvent = delegate("upsertChatEvent");
 export const replaceChatEvents = delegate("replaceChatEvents");
+export const writeChatEventsTail = delegate("writeChatEventsTail");
 
 export const listUserSkills = delegate("listUserSkills");
 export const createUserSkill = delegate("createUserSkill");
