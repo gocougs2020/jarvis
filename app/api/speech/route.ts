@@ -6,6 +6,7 @@ import { estimateSpeechCostUsd } from "@/lib/model-prices";
 import { RATE_LIMIT_MESSAGE, rateLimit } from "@/lib/rate-limit";
 import { recordModelUsage } from "@/lib/record-usage";
 import { speakableText } from "@/lib/speech-text";
+import { getChat } from "@/lib/store";
 import { runWithUsageScope } from "@/lib/usage-scope";
 
 const speechModel = appConfig.models.speech;
@@ -14,7 +15,7 @@ const speechModel = appConfig.models.speech;
  * Spoken replies for voice mode. Runs through AI Gateway with the same
  * credentials as chat (AI_GATEWAY_API_KEY locally, OIDC on Vercel). Swap
  * `models.speech` and `voice.speechVoice` in app.config.ts to change the voice.
- * Nothing here touches the database except the usage row.
+ * The only database work is an ownership check on `chatId` and the usage row.
  */
 export async function POST(request: Request) {
   const { session, error } = await requireApiSession(request);
@@ -29,7 +30,12 @@ export async function POST(request: Request) {
   if (!text) {
     return NextResponse.json({ error: "Text is required." }, { status: 400 });
   }
-  const chatId = typeof body.chatId === "string" ? body.chatId : undefined;
+  // Attribute usage to the chat only when it belongs to the caller.
+  const requestedChatId = typeof body.chatId === "string" ? body.chatId : undefined;
+  const chatId =
+    requestedChatId && (await getChat(session.user.id, requestedChatId))
+      ? requestedChatId
+      : undefined;
 
   try {
     const result = await generateSpeech({
