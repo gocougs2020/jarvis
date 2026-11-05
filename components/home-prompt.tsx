@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { ArrowUpIcon, CheckIcon, MicIcon, PlusIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, AudioLinesIcon, CheckIcon, MicIcon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { AttachmentGallery } from "@/components/attachment-gallery";
 import {
@@ -24,6 +24,7 @@ import { PromptSkillInput } from "@/components/prompt-skill-input";
 import { Spinner } from "@/components/ui/spinner";
 import { appConfig } from "@/app.config";
 import { cn } from "@/lib/utils";
+import { setVoiceMode, stopSpeaking, useVoiceMode } from "@/lib/voice-mode";
 
 type VoiceState = "idle" | "listening" | "transcribing";
 
@@ -174,6 +175,7 @@ export function HomePrompt({
 }) {
   const [voice, setVoice] = useState<VoiceState>("idle");
   const [voiceError, setVoiceError] = useState<string>();
+  const voiceMode = useVoiceMode();
   const [stream, setStream] = useState<MediaStream>();
   const desktopAutofocus = useSyncExternalStore(
     (onChange) => {
@@ -214,6 +216,8 @@ export function HomePrompt({
 
   const startListening = async () => {
     setVoiceError(undefined);
+    // Talking over a spoken reply interrupts it.
+    stopSpeaking();
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickRecorderMimeType();
@@ -301,7 +305,14 @@ export function HomePrompt({
       }
       const text = payload.text?.trim();
       if (text) {
-        setPrompt(prompt.trim() ? `${prompt.trim()} ${text}` : text);
+        const combined = prompt.trim() ? `${prompt.trim()} ${text}` : text;
+        if (voiceMode && !submitting) {
+          // Hands-free: send the transcript straight away; the reply is spoken.
+          setPrompt("");
+          onSubmit({ files: [], text: combined });
+        } else {
+          setPrompt(combined);
+        }
       } else {
         setVoiceError("No speech detected. Try again.");
       }
@@ -412,6 +423,19 @@ export function HomePrompt({
               </PromptInputButton>
             ) : (
               <>
+                <PromptInputButton
+                  aria-label={voiceMode ? "Turn off voice mode" : "Turn on voice mode"}
+                  aria-pressed={voiceMode}
+                  className={cn(voiceMode && "bg-accent text-foreground")}
+                  tooltip={
+                    voiceMode
+                      ? "Voice mode is on: recordings send right away and replies are read aloud"
+                      : "Voice mode: talk and hear replies"
+                  }
+                  onClick={() => setVoiceMode(!voiceMode)}
+                >
+                  <AudioLinesIcon className="size-5" />
+                </PromptInputButton>
                 <PromptInputButton
                   aria-label="Start voice input"
                   disabled={submitting}

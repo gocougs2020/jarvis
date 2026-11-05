@@ -6,6 +6,19 @@ When you pull `main`, keep your customized [`app.config.ts`](./app.config.ts) â€
 
 The matching git tag is the baseline to sync against. Bump `package.json` when you tag the next release.
 
+## Unreleased
+
+Cost and speed
+- The Neon schema bootstrap runs once per schema change instead of on every cold start (~85 sequential DDL round trips and a backfill `UPDATE` each time). A cold start now reads one row from `app_schema_version`.
+- Chat transcripts are saved as checkpoints (every few seconds while streaming, once when the turn settles), writing only changed rows. Before, every streamed token was its own request, database write, and full re-read of the chat to recount usage. Runs of streaming deltas are collapsed before they are stored or loaded. Older chats are compacted on their next turn.
+- A failing recurring schedule skips to its next slot instead of retrying (and writing to the database) on every dispatcher tick. A failing one-off retries every five minutes, then pauses after six hours.
+- Turns start sooner: very short first prompts skip the routing model call, related-session recall skips trivial prompts and overlaps its chat lookup with the embedding calls, and the citations write no longer blocks the turn.
+
+Voice
+- `models.transcription` defaults to `spacexai/grok-stt` (was `openai/gpt-transcribe`).
+- New `models.speech` (`spacexai/grok-tts`) and `voice` block (`speechVoice`, `maxSpeechChars`) in `app.config.ts`. **Add both when you merge** if you keep your own config.
+- Voice mode: the waveform button next to the mic sends a recording as soon as it is transcribed and reads the reply aloud. New route `POST /api/speech`; usage is logged under "Voice replies".
+
 ## 0.4.0 â€” 2026-11-05
 
 Security

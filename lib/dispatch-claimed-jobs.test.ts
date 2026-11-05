@@ -17,12 +17,14 @@ vi.mock("@/lib/db", () => ({ hasNeon: () => false }));
 
 const { dispatchClaimedJobs } = await import("@/lib/dispatch-jobs");
 
+const dueAt = new Date(Date.now() - 60_000).toISOString();
+
 const job: ScheduledJob = {
   id: "job_1",
   userId: "user_1",
   prompt: "Run now. Do not ask questions.\n\nCall the dentist",
-  firstRunAt: "2026-11-05T09:00:00.000Z",
-  nextRunAt: "2026-11-05T09:00:00.000Z",
+  firstRunAt: dueAt,
+  nextRunAt: dueAt,
   everyMinutes: null,
   cadence: null,
   enabled: true,
@@ -56,6 +58,20 @@ describe("dispatchClaimedJobs", () => {
       throw new Error("eve unavailable");
     });
     expect(result).toMatchObject({ dispatched: 0, failed: 1 });
-    expect(store.releaseJob).toHaveBeenCalledWith(job, "eve unavailable", expect.any(Date));
+    expect(store.releaseJob).toHaveBeenCalledWith(job, "eve unavailable", expect.any(Date), false);
+  });
+
+  it("skips a failing recurring job to its next slot instead of retrying every tick", async () => {
+    const daily = {
+      ...job,
+      everyMinutes: 1440,
+      cadence: { kind: "daily" as const, hour: 8, minute: 0, timezone: "America/Denver" },
+    };
+    await dispatchClaimedJobs([daily], async () => {
+      throw new Error("eve unavailable");
+    });
+    const retryAt = store.releaseJob.mock.calls[0]?.[2] as Date;
+    expect(retryAt.getTime()).toBeGreaterThan(Date.now());
+    expect(store.releaseJob.mock.calls[0]?.[3]).toBe(false);
   });
 });

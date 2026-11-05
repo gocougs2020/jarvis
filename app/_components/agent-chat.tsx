@@ -32,6 +32,8 @@ import { AppHeader } from "@/components/app-header";
 import { BrandHero } from "@/components/brand-hero";
 import { HomePrompt } from "@/components/home-prompt";
 import { appConfig } from "@/app.config";
+import { compactStreamEvents, firstChangedIndex } from "@/lib/chat-event-compaction";
+import { isVoiceModeOn, speakText } from "@/lib/voice-mode";
 import { SessionDocumentCanvas } from "@/components/session-document-canvas";
 import { SessionEmptyCanvas } from "@/components/session-empty-canvas";
 import { MobileSessionSheet } from "@/components/mobile-session-sheet";
@@ -52,6 +54,7 @@ import {
 } from "@/lib/start-web-session";
 import {
   hasSettledSessionTail,
+  latestTurnReplyText,
   hasTerminalSessionTail,
   isInactiveSessionError,
   sessionContextUsage,
@@ -108,25 +111,35 @@ const idleComposer: SessionComposer = {
   submitting: false,
 };
 
+const STREAM_CHECKPOINT_MS = 3_000;
+
 export function AgentChat(props: AgentChatProps) {
   const [storeGeneration, setStoreGeneration] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [composer, setComposer] = useState<SessionComposer>(idleComposer);
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const [canvasHost, setCanvasHost] = useState<HTMLDivElement | null>(null);
-  const [resume, setResume] = useState(() =>
-    shouldResumeEveSession(props.chat?.sessionId, props.initialEvents),
-  );
-  const hydratedEventsRef = useRef(props.initialEvents ?? []);
-  const hydratedChatKeyRef = useRef(props.chat?.id ?? "draft");
+  // Resume follows the chat on screen (switching chats in the sidebar does not
+  // remount this component). Only a stuck resume turns it off, for that chat.
+  const [resumeOffFor, setResumeOffFor] = useState<string>();
+  const chatKey = props.chat?.id ?? "draft";
+  const resume =
+    resumeOffFor !== chatKey && shouldResumeEveSession(props.chat?.sessionId, props.initialEvents);
+  // Stored events are compacted and lack the ids of collapsed deltas. Resuming
+  // replays the server stream from the start and dedupes by id, so hydrating
+  // them would duplicate earlier replies: when resuming, start empty and let
+  // the replay rebuild the transcript. Keyed to `resume` so the two never
+  // disagree (an emptied transcript always replays).
+  const hydrationFor = (resuming: boolean) => (resuming ? [] : [...(props.initialEvents ?? [])]);
+  const hydratedEventsRef = useRef(hydrationFor(resume));
+  const hydratedChatKeyRef = useRef(chatKey);
   const remountingRef = useRef(false);
   const retryRef = useRef<PromptInputMessage>(undefined);
   const landing = props.compose === "landing" && !props.chat;
-  const chatKey = props.chat?.id ?? "draft";
   if (hydratedChatKeyRef.current !== chatKey) {
     hydratedChatKeyRef.current = chatKey;
     // eslint-disable-next-line react-hooks/refs -- reset hydration when the chat changes
-    hydratedEventsRef.current = props.initialEvents ?? [];
+    hydratedEventsRef.current = hydrationFor(resume);
   }
 
   const onHydrateEvents = useCallback((events: readonly MessageStreamEvent[]) => {
@@ -137,7 +150,7 @@ export function AgentChat(props: AgentChatProps) {
     if (retry) retryRef.current = retry;
     if (remountingRef.current && !retry) return;
     remountingRef.current = true;
-    setResume(false);
+    setResumeOffFor(hydratedChatKeyRef.current);
     setStoreGeneration((value) => value + 1);
   }, []);
 
@@ -160,6 +173,7 @@ export function AgentChat(props: AgentChatProps) {
       hideComposer={!landing}
       // eslint-disable-next-line react-hooks/refs -- remount handoff
       initialEvents={hydratedEventsRef.current}
+      storedEventCount={props.initialEvents?.length ?? 0}
       onComposerChange={landing ? undefined : setComposer}
       prompt={prompt}
       resume={resume}
@@ -222,6 +236,7 @@ function AgentChatSession({
   onComposerChange,
   onHydrateEvents,
   onStuckResuming,
+  storedEventCount = 0,
 }: AgentChatProps & {
   readonly autoSend?: PromptInputMessage;
   readonly canvasHost?: HTMLElement | null;
@@ -231,6 +246,8 @@ function AgentChatSession({
   readonly resume?: boolean;
   readonly setPrompt: Dispatch<SetStateAction<string>>;
   readonly onHydrateEvents: (events: readonly MessageStreamEvent[]) => void;
+  /** Rows the server held when this page loaded; no write may shrink below it. */
+  readonly storedEventCount?: number;
   readonly onStuckResuming: (retry?: PromptInputMessage) => void;
 }) {
   const router = useRouter();
@@ -320,8 +337,7 @@ function AgentChatSession({
   };
 
   const pollSessionCitations = () => {
-    void refreshSessionCitations();
-    for (const delay of [800, 1800, 3600]) {
+    for (const delay of [1500, 4000]) {
       window.setTimeout(() => {
         void refreshSessionCitations();
       }, delay);
@@ -392,18 +408,60 @@ function AgentChatSession({
     );
   };
 
+  // What the server already holds for this chat, compacted. Each checkpoint
+  // writes only the rows that changed, in one request, instead of one request
+  // (and several database writes) per streamed token.
+  // Starts empty, not from `initialEvents`: after a remount those are this
+  // tab's events and may include rows the server never got. The first
+  // checkpoint of a mount writes the whole compacted log (also compacting a
+  // chat saved before compaction existed); later ones write only the tail.
+  const storedEventsRef = useRef<MessageStreamEvent[]>([]);
+  // While resuming, the replay rebuilds the log from empty; do not let an early
+  // checkpoint of a partial replay trim rows the server already has.
+  const storedFloorRef = useRef(storedEventCount);
   const persistInFlight = useRef(false);
-  const persistQueued = useRef<MessageStreamEvent[] | null>(null);
+  const persistQueued = useRef<{
+    events: readonly MessageStreamEvent[];
+    final: boolean;
+    /** Only an intentional reset may shrink the stored log. */
+    reset?: boolean;
+  } | null>(null);
+  const checkpointTimer = useRef<number | undefined>(undefined);
 
   const flushPersistedEvents = () => {
     if (persistInFlight.current) return;
-    const events = persistQueued.current;
-    if (!events) return;
+    const queued = persistQueued.current;
+    if (!queued) return;
     const chatId = activeChatRef.current?.id;
     if (!chatId) return;
     persistQueued.current = null;
+    // Only an intentional reset may write an empty log; an empty snapshot
+    // otherwise means "nothing yet", not "delete everything".
+    if (queued.events.length === 0 && !queued.reset) return;
+    const next = compactStreamEvents(queued.events);
+    if (!queued.reset && next.length < storedFloorRef.current) return;
+    const stored = storedEventsRef.current;
+    const fromIndex = firstChangedIndex(stored, next, isSameStreamEvent);
+    // An older or empty snapshot (a prefix of what is stored) must not trim the log.
+    const stale = !queued.reset && fromIndex === next.length && next.length < stored.length;
+    const unchanged = fromIndex === next.length && stored.length === next.length;
+    if (stale || (unchanged && !queued.final)) {
+      if (queued.final && next.length > 0) {
+        persistQueued.current = { events: stored, final: true };
+        flushPersistedEvents();
+      }
+      return;
+    }
     persistInFlight.current = true;
-    void fetchJson(`/api/chats/${chatId}/events`, "POST", { events })
+    void fetchJson(`/api/chats/${chatId}/events`, "POST", {
+      events: next.slice(fromIndex),
+      final: queued.final,
+      fromIndex,
+      total: next.length,
+    })
+      .then((response) => {
+        if (response.ok) storedEventsRef.current = next;
+      })
       .catch(() => undefined)
       .finally(() => {
         persistInFlight.current = false;
@@ -411,36 +469,27 @@ function AgentChatSession({
       });
   };
 
-  const persistEvents = (events: readonly MessageStreamEvent[]) => {
-    persistQueued.current = mergeQueuedEvents(persistQueued.current, events);
+  const persistEvents = (events: readonly MessageStreamEvent[], final = false) => {
+    window.clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = undefined;
+    persistQueued.current = {
+      events,
+      final: final || Boolean(persistQueued.current?.final),
+      reset: persistQueued.current?.reset,
+    };
     flushPersistedEvents();
   };
 
-  const upsertQueue = useRef<{ index: number; event: MessageStreamEvent }[]>([]);
-  const upsertInFlight = useRef(false);
-
-  const flushUpsertedEvents = () => {
-    if (upsertInFlight.current) return;
-    const next = upsertQueue.current.shift();
-    if (!next) return;
-    const chatId = activeChatRef.current?.id;
-    if (!chatId) {
-      upsertQueue.current.unshift(next);
-      return;
-    }
-    upsertInFlight.current = true;
-    void fetchJson(`/api/chats/${chatId}/events`, "POST", next)
-      .catch(() => undefined)
-      .finally(() => {
-        upsertInFlight.current = false;
-        if (upsertQueue.current.length > 0) flushUpsertedEvents();
-      });
+  /** While a turn streams, checkpoint every few seconds so a reload can resume it. */
+  const scheduleCheckpoint = () => {
+    if (checkpointTimer.current !== undefined) return;
+    checkpointTimer.current = window.setTimeout(() => {
+      checkpointTimer.current = undefined;
+      persistEvents(eventsRef.current);
+    }, STREAM_CHECKPOINT_MS);
   };
 
-  const persistEvent = (index: number, event: MessageStreamEvent) => {
-    upsertQueue.current.push({ index, event });
-    flushUpsertedEvents();
-  };
+  useEffect(() => () => window.clearTimeout(checkpointTimer.current), []);
 
   const agent = useEveAgent({
     initialEvents,
@@ -455,7 +504,13 @@ function AgentChatSession({
     onEvent(event) {
       eventsRef.current = [...eventsRef.current, event];
       onHydrateEvents(eventsRef.current);
-      persistEvent(eventsRef.current.length - 1, event);
+      // Save the first event of a new turn right away, so a reload sees an
+      // unfinished turn and resumes it; later events ride the checkpoint timer.
+      if (storedEventsRef.current.length === 0 || hasSettledSessionTail(storedEventsRef.current)) {
+        persistEvents(eventsRef.current);
+      } else {
+        scheduleCheckpoint();
+      }
       if (event.type === "action.result") {
         const documents = documentsFromToolOutput(
           "output" in event.data ? event.data.output : undefined,
@@ -484,11 +539,16 @@ function AgentChatSession({
       if (liveTurnRef.current) {
         liveTurnRef.current = false;
         markSessionActivityRef.current();
+        // Voice mode reads the reply aloud, but only for a turn just sent from
+        // this tab, never when replaying or resuming an older one.
+        if (isVoiceModeOn()) {
+          void speakText(latestTurnReplyText(snapshot.events), activeChatRef.current?.id);
+        }
       }
       void refreshSessionCitations();
       // Persist off the store's completion path so stringify/fetch cannot
       // keep the composer locked after the turn has already settled.
-      window.setTimeout(() => persistEvents(snapshot.events), 0);
+      window.setTimeout(() => persistEvents(snapshot.events, true), 0);
     },
     onError(error) {
       sendErrorRef.current = error.message;
@@ -556,9 +616,11 @@ function AgentChatSession({
 
   const startFreshSession = () => {
     eventsRef.current = [];
-    // Bypass mergeQueuedEvents so an intentional reset is not treated as an
-    // empty onFinish snapshot that should preserve the prior log.
-    persistQueued.current = [];
+    // An intentional reset is the one write allowed to empty the stored log.
+    window.clearTimeout(checkpointTimer.current);
+    checkpointTimer.current = undefined;
+    storedFloorRef.current = 0;
+    persistQueued.current = { events: [], final: false, reset: true };
     flushPersistedEvents();
     agent.reset();
     persistSession(undefined);
@@ -635,7 +697,7 @@ function AgentChatSession({
     setCancellationError(undefined);
     try {
       await agent.cancel();
-      persistEvents(eventsRef.current);
+      persistEvents(eventsRef.current, true);
     } catch (error: unknown) {
       setCancellationError(toErrorMessage(error));
     }
@@ -1220,38 +1282,6 @@ function isSameStreamEvent(left: MessageStreamEvent, right: MessageStreamEvent):
   } catch {
     return false;
   }
-}
-
-function isEventPrefix(
-  events: readonly MessageStreamEvent[],
-  prefix: readonly MessageStreamEvent[],
-): boolean {
-  return prefix.every((event, index) => {
-    const candidate = events[index];
-    return candidate !== undefined && isSameStreamEvent(event, candidate);
-  });
-}
-
-function mergeQueuedEvents(
-  queued: MessageStreamEvent[] | null,
-  incoming: readonly MessageStreamEvent[],
-): MessageStreamEvent[] {
-  if (!queued) return [...incoming];
-
-  // Incoming is a newer full snapshot that already includes the queued list.
-  if (incoming.length >= queued.length && isEventPrefix(incoming, queued)) {
-    return [...incoming];
-  }
-
-  // Queued snapshot is already newer (or incoming is empty); keep it rather
-  // than shrinking the log. An empty onFinish/reset snapshot is a prefix of
-  // any queued list, so previously queued events are preserved.
-  if (queued.length > incoming.length && isEventPrefix(queued, incoming)) {
-    return queued;
-  }
-
-  // Distinct batches arrived while a flush was in flight — keep both.
-  return [...queued, ...incoming];
 }
 
 function getLatestTurnFailure(

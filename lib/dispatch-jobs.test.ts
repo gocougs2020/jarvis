@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { appOrigin, scheduleDispatchSecret, scheduleSessionAuth } from "@/lib/dispatch-jobs";
+import {
+  appOrigin,
+  failedDispatchPlan,
+  scheduleDispatchSecret,
+  scheduleSessionAuth,
+} from "@/lib/dispatch-jobs";
 import { normalizeChatSource } from "@/lib/types";
 
 const KEYS = [
@@ -89,5 +94,59 @@ describe("scheduleSessionAuth", () => {
         scheduleId: "job-1",
       },
     });
+  });
+});
+
+describe("failedDispatchPlan", () => {
+  const now = new Date("2026-11-05T15:00:00.000Z");
+  const base = {
+    everyMinutes: null,
+    lastError: null,
+    firstRunAt: "2026-11-05T14:55:00.000Z",
+    nextRunAt: "2026-11-05T14:55:00.000Z",
+  };
+
+  it("moves a failing recurring job to its next slot instead of retrying every tick", () => {
+    const plan = failedDispatchPlan(
+      {
+        ...base,
+        everyMinutes: 1440,
+        cadence: { kind: "daily", hour: 8, minute: 0, timezone: "America/Denver" },
+      },
+      now,
+    );
+    expect(plan.disable).toBe(false);
+    expect(plan.retryAt && plan.retryAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("retries a fresh one-off soon, then pauses it", () => {
+    const fresh = failedDispatchPlan({ ...base, cadence: null }, now);
+    expect(fresh).toEqual({ retryAt: new Date(now.getTime() + 300_000), disable: false });
+    const stale = failedDispatchPlan(
+      { ...base, cadence: null, firstRunAt: "2026-11-04T00:00:00.000Z", lastError: "boom" },
+      now,
+    );
+    expect(stale).toEqual({ retryAt: null, disable: true });
+  });
+
+  it("never pauses a one-off on its first failure", () => {
+    const plan = failedDispatchPlan(
+      { ...base, cadence: null, firstRunAt: "2026-11-01T00:00:00.000Z" },
+      now,
+    );
+    expect(plan.disable).toBe(false);
+  });
+
+  it("measures from a rescheduled one-off's current slot, not its creation time", () => {
+    const plan = failedDispatchPlan(
+      {
+        ...base,
+        firstRunAt: "2026-11-01T00:00:00.000Z",
+        lastError: "boom",
+        cadence: { kind: "once", timezone: "UTC", at: "2026-11-05T14:00" },
+      },
+      now,
+    );
+    expect(plan.disable).toBe(false);
   });
 });

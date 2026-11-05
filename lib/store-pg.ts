@@ -355,6 +355,31 @@ export async function replaceChatEvents(chatId: string, events: unknown[]) {
     .where(and(eq(pgChatEvents.chatId, chatId), gte(pgChatEvents.index, events.length)));
 }
 
+/**
+ * Checkpoint: rows before `fromIndex` are unchanged, so write only
+ * `events` at `fromIndex..`, then drop rows at or past `total`.
+ */
+export async function writeChatEventsTail(
+  chatId: string,
+  fromIndex: number,
+  events: unknown[],
+  total: number,
+) {
+  const db = getNeonDb();
+  if (events.length > 0) {
+    await db
+      .insert(pgChatEvents)
+      .values(chatEventRecords(chatId, events, fromIndex))
+      .onConflictDoUpdate({
+        target: pgChatEvents.id,
+        set: { event: sql`excluded.event` },
+      });
+  }
+  await db
+    .delete(pgChatEvents)
+    .where(and(eq(pgChatEvents.chatId, chatId), gte(pgChatEvents.index, total)));
+}
+
 export async function listUserSkills(userId: string): Promise<UserSkill[]> {
   const rows = await getNeonDb()
     .select()
@@ -549,9 +574,10 @@ export async function releaseJob(
   job: ScheduledJob,
   error: string,
   retryAt?: Date | null,
+  disable = false,
 ): Promise<boolean> {
   if (!job.leaseToken) return false;
-  const fields = releasedJobFields(error, retryAt?.toISOString() ?? null, nowIso());
+  const fields = releasedJobFields(error, retryAt?.toISOString() ?? null, nowIso(), disable);
   const updated = await getNeonDb()
     .update(pgScheduledJobs)
     .set({
@@ -559,6 +585,7 @@ export async function releaseJob(
       leaseUntil: fields.leaseUntil,
       lastError: fields.lastError,
       ...(retryAt ? { nextRunAt: retryAt } : {}),
+      ...(disable ? { enabled: false } : {}),
       updatedAt: asDate(fields.updatedAt),
     })
     .where(jobOwnedByLease(job))

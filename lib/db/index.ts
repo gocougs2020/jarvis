@@ -114,6 +114,27 @@ export async function ensureNeonAuthSchema() {
   await neonAuthSchema;
 }
 
+type NeonSql = ReturnType<typeof neon<false, false>>;
+
+/**
+ * Fingerprint of `migrateNeonSchema`. It changes whenever the migration body
+ * changes, so a deploy that edits the schema reruns it once, and every other
+ * cold start skips it. That keeps a cold start at one small read instead of
+ * ~85 sequential DDL round trips (plus a backfill UPDATE) that each wake and
+ * bill the Neon compute.
+ */
+export const NEON_SCHEMA_FINGERPRINT = fingerprint(migrateNeonSchema.toString());
+
+function fingerprint(text: string): string {
+  // FNV-1a, 32-bit. Collisions only cost one extra (idempotent) migration run.
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 async function createNeonAuthTables() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -121,6 +142,36 @@ async function createNeonAuthTables() {
   }
 
   const sql = neon(databaseUrl);
+  if (await schemaIsCurrent(sql)) return;
+  await migrateNeonSchema(sql);
+  await sql`
+    CREATE TABLE IF NOT EXISTS app_schema_version (
+      id INTEGER PRIMARY KEY,
+      fingerprint TEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    INSERT INTO app_schema_version (id, fingerprint, updated_at)
+    VALUES (1, ${NEON_SCHEMA_FINGERPRINT}, now())
+    ON CONFLICT (id) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, updated_at = now()
+  `;
+}
+
+async function schemaIsCurrent(sql: NeonSql): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      SELECT fingerprint FROM app_schema_version WHERE id = 1
+    `) as Array<{ fingerprint?: string }>;
+    return rows[0]?.fingerprint === NEON_SCHEMA_FINGERPRINT;
+  } catch {
+    // First run: the version table does not exist yet.
+    return false;
+  }
+}
+
+/** Idempotent. Edit freely; the fingerprint above reruns it on the next cold start. */
+async function migrateNeonSchema(sql: NeonSql) {
   await sql`
     CREATE TABLE IF NOT EXISTS "user" (
       id TEXT PRIMARY KEY,

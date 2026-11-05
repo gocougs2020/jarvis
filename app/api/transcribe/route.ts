@@ -41,7 +41,11 @@ export async function POST(request: Request) {
     });
     void runWithUsageScope({ userId: session.user.id }, () =>
       recordModelUsage({
-        costUsd: estimateTranscriptionCostUsd(result.durationInSeconds, audio.size),
+        costUsd: estimateTranscriptionCostUsd(
+          result.durationInSeconds,
+          audio.size,
+          transcriptionModel,
+        ),
         inputTokens: 0,
         modelId: transcriptionModel,
         outputTokens: 0,

@@ -277,6 +277,7 @@ export const USAGE_PURPOSES = [
   "embeddings",
   "instructions",
   "transcription",
+  "speech",
   "image",
   "web_search",
   "email",

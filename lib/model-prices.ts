@@ -78,8 +78,28 @@ const IMAGE_FALLBACK_USD: Readonly<Record<string, { square: number; other: numbe
   high: { square: 0.211, other: 0.165 },
 };
 
-/** openai/gpt-transcribe on AI Gateway: $0.000075 per second of audio. */
+/** AI Gateway list price per second of audio, by transcription model. */
+const TRANSCRIPTION_USD_PER_SECOND: Readonly<Record<string, number>> = {
+  "spacexai/grok-stt": 0.000028,
+  "openai/gpt-transcribe": 0.000075,
+  "openai/whisper-1": 0.0001,
+};
+
+/** Fallback for a transcription model not listed above (openai/gpt-transcribe). */
 export const TRANSCRIPTION_USD_PER_MINUTE = 0.0045;
+
+/** AI Gateway list price per input character, by speech (text-to-speech) model. */
+const SPEECH_USD_PER_CHARACTER: Readonly<Record<string, number>> = {
+  "spacexai/grok-tts": 0.000015,
+  "openai/tts-1": 0.000015,
+  "openai/tts-1-hd": 0.00003,
+};
+const SPEECH_FALLBACK_USD_PER_CHARACTER = 0.000015;
+
+export function estimateSpeechCostUsd(modelId: string, characters: number): number {
+  const rate = SPEECH_USD_PER_CHARACTER[modelId.trim().toLowerCase()] ?? SPEECH_FALLBACK_USD_PER_CHARACTER;
+  return Math.max(0, characters) * rate;
+}
 
 /** AI Gateway Exa search. List rate is $7 / 1k requests (up to 10 results). */
 export const EXA_SEARCH_MODEL_ID = "exa/search";
@@ -146,12 +166,20 @@ export function estimateImageCostUsd(quality: string, size: string, count: numbe
   return perImage * Math.max(1, count);
 }
 
-export function estimateTranscriptionCostUsd(durationSeconds?: number, audioBytes?: number): number {
+export function estimateTranscriptionCostUsd(
+  durationSeconds?: number,
+  audioBytes?: number,
+  modelId?: string,
+): number {
   const minutes =
     durationSeconds != null && Number.isFinite(durationSeconds)
       ? durationSeconds / 60
       : audioBytes != null && Number.isFinite(audioBytes)
         ? audioBytes / (3_000 * 60)
         : 0;
-  return Math.max(0, minutes) * TRANSCRIPTION_USD_PER_MINUTE;
+  const perSecond = modelId
+    ? TRANSCRIPTION_USD_PER_SECOND[modelId.trim().toLowerCase()]
+    : undefined;
+  const perMinute = perSecond != null ? perSecond * 60 : TRANSCRIPTION_USD_PER_MINUTE;
+  return Math.max(0, minutes) * perMinute;
 }

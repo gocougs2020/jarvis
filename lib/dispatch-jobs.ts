@@ -10,7 +10,12 @@ import {
   scheduleDispatchMessage,
   schedulePreviewText,
 } from "@/lib/schedule-prompt";
-import { isOneOffJob } from "@/lib/job-cadence";
+import {
+  advanceJobAfterRun,
+  isOneOffJob,
+  nextRunAtFromCadence,
+  parseJobCadence,
+} from "@/lib/job-cadence";
 import {
   claimDueJobs,
   claimJob,
@@ -31,6 +36,46 @@ export const SCHEDULE_DISPATCH_REMINDER_HEADER = "x-schedule-reminder";
 
 const DEFAULT_LEASE_MS = 5 * 60_000;
 const RETRY_MS = 300_000;
+/** A one-off that still fails this long after it was due is paused instead of retried. */
+const ONE_OFF_GIVE_UP_MS = 6 * 60 * 60_000;
+
+/**
+ * What to do with a job whose dispatch failed before its session started.
+ *
+ * A recurring job used to keep its past-due `nextRunAt`, so every dispatcher
+ * tick reclaimed it, failed again, and wrote two rows — waking the database
+ * on every tick for as long as the error lasted. Now a recurring job skips to
+ * its next slot (the error stays on the row for the Schedules page), and a
+ * one-off retries on a short backoff, then pauses.
+ */
+export function failedDispatchPlan(
+  job: Pick<ScheduledJob, "cadence" | "everyMinutes" | "nextRunAt" | "firstRunAt" | "lastError">,
+  now = new Date(),
+): { retryAt: Date | null; disable: boolean } {
+  if (isOneOffJob(job)) {
+    // Never give up on the first failure: the job may have just been
+    // rescheduled. After that, measure from the slot it is scheduled for now.
+    const dueAt = job.lastError ? oneOffScheduledAt(job) : Number.NaN;
+    if (Number.isFinite(dueAt) && now.getTime() - dueAt > ONE_OFF_GIVE_UP_MS) {
+      return { retryAt: null, disable: true };
+    }
+    return { retryAt: new Date(now.getTime() + RETRY_MS), disable: false };
+  }
+  const advanced = advanceJobAfterRun(job);
+  if (!advanced.enabled || !advanced.nextRunAt) return { retryAt: null, disable: true };
+  return { retryAt: new Date(advanced.nextRunAt), disable: false };
+}
+
+/**
+ * When a one-off is scheduled to run. Editing its time rewrites its "once"
+ * cadence (never `firstRunAt`), so use the later of the two.
+ */
+function oneOffScheduledAt(job: Pick<ScheduledJob, "cadence" | "firstRunAt">): number {
+  const first = Date.parse(job.firstRunAt);
+  const cadence = parseJobCadence(job.cadence);
+  const at = cadence?.kind === "once" ? nextRunAtFromCadence(cadence)?.getTime() : undefined;
+  return at !== undefined && Number.isFinite(at) ? Math.max(first, at) : first;
+}
 
 export type ScheduleStartSession = (
   job: ScheduledJob,
@@ -159,8 +204,8 @@ export async function dispatchClaimedJobs(
         failed += 1;
         errors.push(message);
         console.error("[schedule] dispatch failed", { jobId: job.id, error: message });
-        const retryAt = isOneOffJob(job) ? new Date(Date.now() + RETRY_MS) : null;
-        const released = await releaseJob(job, message, retryAt);
+        const plan = failedDispatchPlan(job);
+        const released = await releaseJob(job, message, plan.retryAt, plan.disable);
         if (!released) {
           console.warn("[schedule] lost lease before release", { jobId: job.id });
         }

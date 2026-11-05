@@ -43,6 +43,8 @@ export type AppConfig = {
     imageGeneration: string;
     /** AI Gateway transcription model for voice input (same credentials as chat). */
     transcription: string;
+    /** AI Gateway speech (text-to-speech) model for spoken replies in voice mode. */
+    speech: string;
     contextWindows: Readonly<Record<string, number>>;
   };
   memory: {
@@ -70,6 +72,12 @@ export type AppConfig = {
      * deny-all, so a hostname list means deny-all there.
      */
     sandboxNetwork: "deny-all" | "allow-all" | readonly string[];
+  };
+  voice: {
+    /** Voice for `models.speech`. Grok TTS voices: ara, eve, leo, rex, sal. */
+    speechVoice: string;
+    /** Longer replies are trimmed to this many characters before they are spoken. */
+    maxSpeechChars: number;
   };
   setup: {
     /**
@@ -103,7 +111,8 @@ export const appConfig = {
     compaction: "openai/gpt-5.6-luna",
     embeddings: "openai/text-embedding-3-small",
     imageGeneration: "openai/gpt-image-2",
-    transcription: "openai/gpt-transcribe",
+    transcription: "spacexai/grok-stt",
+    speech: "spacexai/grok-tts",
     contextWindows: {
       "openai/gpt-5.6-luna-fast": 1_050_000,
       "openai/gpt-5.6-luna": 1_050_000,
@@ -214,6 +223,11 @@ export const appConfig = {
 
   security: {
     sandboxNetwork: "deny-all",
+  },
+
+  voice: {
+    speechVoice: "ara",
+    maxSpeechChars: 2_000,
   },
 
   setup: {
