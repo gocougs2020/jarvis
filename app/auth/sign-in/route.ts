@@ -4,9 +4,13 @@ import { getAuth } from "@/lib/auth";
 import { VERIFY_EMAIL_CALLBACK_PATH } from "@/lib/auth-email";
 import { authFormErrorMessage, formField } from "@/lib/auth-form";
 import { ensureNeonAuthSchema } from "@/lib/db";
+import { isCrossSiteRequest } from "@/lib/internal-auth";
 import { clientKey, RATE_LIMIT_MESSAGE, rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  if (isCrossSiteRequest(request)) {
+    return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
+  }
   if (!rateLimit(clientKey(request, "signin"), { limit: 20, windowMs: 15 * 60 * 1000 })) {
     const dest = new URL("/sign-in", request.url);
     dest.searchParams.set("error", RATE_LIMIT_MESSAGE);

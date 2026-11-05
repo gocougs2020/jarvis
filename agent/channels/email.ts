@@ -1,5 +1,6 @@
 import { defineChannel, POST } from "eve/channels";
 import eve from "./eve";
+import { isInternalDispatchRequest } from "../../lib/internal-auth";
 
 type StartBody = {
   userId?: string;
@@ -12,8 +13,7 @@ type StartBody = {
 export default defineChannel({
   routes: [
     POST("/api/internal/email-sessions", async (request, { to }) => {
-      const secret = process.env.RESEND_WEBHOOK_SECRET ?? process.env.EMAIL_SESSION_SECRET;
-      if (!secret || request.headers.get("x-email-session-secret") !== secret) {
+      if (!isInternalDispatchRequest(request.headers.get("x-email-session-secret"))) {
         return new Response("Unauthorized", { status: 401 });
       }
 

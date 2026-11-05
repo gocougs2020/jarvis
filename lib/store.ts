@@ -59,6 +59,7 @@ export const createChat = delegate("createChat");
 export const updateChat = delegate("updateChat");
 export const deleteChat = delegate("deleteChat");
 export const getChatByEveSessionId = delegate("getChatByEveSessionId");
+export const listChatOwnersForEveSession = delegate("listChatOwnersForEveSession");
 export const listChatEvents = delegate("listChatEvents");
 export const upsertChatEvent = delegate("upsertChatEvent");
 export const replaceChatEvents = delegate("replaceChatEvents");

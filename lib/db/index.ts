@@ -217,6 +217,7 @@ async function createNeonAuthTables() {
   if (chatDescriptionColumn.length === 0) {
     await sql`ALTER TABLE chats ADD COLUMN description TEXT NOT NULL DEFAULT ''`;
   }
+  await sql`CREATE INDEX IF NOT EXISTS chats_session_id_idx ON chats (session_id)`;
   await sql`
     CREATE TABLE IF NOT EXISTS chat_events (
       id TEXT PRIMARY KEY,
@@ -412,6 +413,15 @@ async function createNeonAuthTables() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS emails_user_id_idx ON emails (user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS emails_resend_id_idx ON emails (resend_email_id)`;
+  try {
+    // One row per Resend message, so a webhook retry cannot start a second session.
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS emails_resend_id_unique_idx
+      ON emails (resend_email_id) WHERE resend_email_id IS NOT NULL
+    `;
+  } catch (error) {
+    console.warn("[db] emails_resend_id_unique_idx not created; remove duplicate rows first", error);
+  }
   await sql`
     CREATE TABLE IF NOT EXISTS scheduled_jobs (
       id TEXT PRIMARY KEY,

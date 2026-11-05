@@ -307,12 +307,7 @@ export function HomePrompt({
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      const message = error instanceof Error ? error.message : "";
-      setVoiceError(
-        message.includes("OPENAI_API_KEY")
-          ? "Voice input needs an OpenAI API key."
-          : "Couldn't transcribe that recording. Try again.",
-      );
+      setVoiceError("Couldn't transcribe that recording. Try again.");
     } finally {
       setVoice("idle");
     }

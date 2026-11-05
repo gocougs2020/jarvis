@@ -148,9 +148,22 @@ export function newChatRecord(
   });
 }
 
+/**
+ * Pick only the fields a chat patch may change. Callers pass request bodies
+ * here, so anything else (userId, id, createdAt, source) is dropped rather
+ * than written through.
+ */
 export function chatPatchFields(patch: ChatPatch): Omit<ChatPatch, "touchUpdatedAt"> {
-  const fields = { ...patch };
-  delete fields.touchUpdatedAt;
+  const input = (patch ?? {}) as Record<string, unknown>;
+  const fields: Omit<ChatPatch, "touchUpdatedAt"> = {};
+  if (typeof input.title === "string") fields.title = input.title;
+  if (typeof input.description === "string") fields.description = input.description;
+  if (typeof input.sessionId === "string" || input.sessionId === null) {
+    fields.sessionId = input.sessionId as string | null;
+  }
+  if (typeof input.streamIndex === "number" && Number.isInteger(input.streamIndex)) {
+    fields.streamIndex = Math.max(0, input.streamIndex);
+  }
   return fields;
 }
 

@@ -20,6 +20,9 @@ export function upsertEnvFile(filePath: string, key: SetupEnvWritableKey, value:
   if (!value.trim()) {
     throw new Error("A value is required.");
   }
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error("A setting value must be a single line.");
+  }
 
   let text = "";
   try {

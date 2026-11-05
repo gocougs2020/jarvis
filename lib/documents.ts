@@ -15,6 +15,7 @@ import {
 } from "@/lib/document-folders";
 import {
   filenameForDocument,
+  safeFilename,
   inferDocumentKind,
   isDocumentKind,
   isEditableDocumentKind,
@@ -210,7 +211,7 @@ export async function updateUserDocument(
 
   const title = patch.title?.trim() || current.title;
   const kind = patch.kind ?? current.kind;
-  const filename = patch.filename?.trim() || current.filename;
+  const filename = (patch.filename ? safeFilename(patch.filename) : "") || current.filename;
   const mimeType = storedMimeType(filename, kind, patch.mimeType?.trim() || current.mimeType);
   let blobPathname = current.blobPathname;
   let blobUrl = current.blobUrl;

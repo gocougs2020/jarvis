@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getEmail: vi.fn(),
   createChat: vi.fn(),
   createJob: vi.fn(),
+  deleteChat: vi.fn(),
   updateChat: vi.fn(),
 }));
 
@@ -47,6 +48,7 @@ vi.mock("@/lib/store", () => ({
   getEmail: mocks.getEmail,
   createChat: mocks.createChat,
   createJob: mocks.createJob,
+  deleteChat: mocks.deleteChat,
   updateChat: mocks.updateChat,
   titleFromPrompt: (value: string) => value,
 }));
@@ -171,6 +173,32 @@ describe("processInboundResendEmail", () => {
 
     await processInboundResendEmail(inbound);
     expect(mocks.createChat).toHaveBeenCalled();
+  });
+
+  it("queues a /remind follow-through when the session cannot start now", async () => {
+    mocks.classifyEmailAction.mockResolvedValue({
+      hasActionItem: true,
+      summary: "Book dinner",
+      prompt: "Book dinner for two.",
+    });
+    mocks.createChat.mockResolvedValue({ id: "chat-1" });
+    mocks.updateEmail.mockResolvedValue(emailRecord({ hasActionItem: true, actionSummary: "Book dinner" }));
+
+    // No dispatch secret configured, so the immediate start is skipped.
+    const authSecret = process.env.BETTER_AUTH_SECRET;
+    const sessionSecret = process.env.EMAIL_SESSION_SECRET;
+    delete env().BETTER_AUTH_SECRET;
+    delete env().EMAIL_SESSION_SECRET;
+    try {
+      await processInboundResendEmail(inbound);
+    } finally {
+      if (authSecret !== undefined) env().BETTER_AUTH_SECRET = authSecret;
+      if (sessionSecret !== undefined) env().EMAIL_SESSION_SECRET = sessionSecret;
+    }
+    expect(mocks.deleteChat).toHaveBeenCalledWith("user-1", "chat-1");
+    const [, job] = mocks.createJob.mock.calls.at(-1) ?? [];
+    expect(job?.prompt).toMatch(/^\/remind\b/);
+    expect(job?.prompt).toContain("Complete the request in this email.");
   });
 
   it("does not store an empty body when receiving.get fails", async () => {

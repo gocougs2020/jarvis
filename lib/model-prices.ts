@@ -78,8 +78,8 @@ const IMAGE_FALLBACK_USD: Readonly<Record<string, { square: number; other: numbe
   high: { square: 0.211, other: 0.165 },
 };
 
-/** gpt-transcribe is billed per minute of audio. */
-export const TRANSCRIPTION_USD_PER_MINUTE = 0.006;
+/** openai/gpt-transcribe on AI Gateway: $0.000075 per second of audio. */
+export const TRANSCRIPTION_USD_PER_MINUTE = 0.0045;
 
 /** AI Gateway Exa search. List rate is $7 / 1k requests (up to 10 results). */
 export const EXA_SEARCH_MODEL_ID = "exa/search";

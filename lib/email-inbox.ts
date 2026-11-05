@@ -7,6 +7,7 @@ import {
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
 import { findUserById, normalizeEmailAddress, parseAddressList } from "@/lib/email-users";
+import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import {
   extractInboundMailToken,
   inboundMailAuthorizesUnattendedSession,
@@ -15,6 +16,7 @@ import {
 import { embedTexts } from "@/lib/embeddings";
 import {
   createChat,
+  deleteChat,
   createEmail,
   createJob,
   findUserIdByInboundMailToken,
@@ -27,6 +29,7 @@ import {
   updateChat,
   updateEmail,
 } from "@/lib/store";
+import { remindFollowThroughPrompt } from "@/lib/schedule-prompt";
 import { runWithUsageScope } from "@/lib/usage-scope";
 import type { EmailDirection, EmailRecord, EmailSearchHit } from "@/lib/types";
 
@@ -134,9 +137,9 @@ async function startEmailSessionNow(
   prompt: string,
   chatId: string,
 ): Promise<string | null> {
-  const secret = process.env.RESEND_WEBHOOK_SECRET ?? process.env.EMAIL_SESSION_SECRET;
-  const origin = process.env.BETTER_AUTH_URL?.replace(/\/$/, "");
-  if (!secret || !origin) return null;
+  const secret = internalDispatchSecret();
+  const origin = appOrigin();
+  if (!secret) return null;
   const owner = await findUserById(email.userId);
   try {
     const response = await fetch(`${origin}/api/internal/email-sessions`, {
@@ -164,7 +167,7 @@ async function startEmailSessionNow(
 }
 
 /** Start an email-sourced session. Callers must not use inbound From as authorization. */
-export async function startEmailActionSession(email: EmailRecord, prompt: string): Promise<string> {
+export async function startEmailActionSession(email: EmailRecord, prompt: string): Promise<string | null> {
   const chat = await createChat(
     email.userId,
     titleFromPrompt(email.actionSummary || email.subject || prompt),
@@ -173,17 +176,24 @@ export async function startEmailActionSession(email: EmailRecord, prompt: string
   const sessionId = await startEmailSessionNow(email, prompt, chat.id);
   if (sessionId) {
     await updateChat(email.userId, chat.id, { sessionId });
-  } else {
-    await createJob(email.userId, {
-      prompt,
-      firstRunAt: new Date().toISOString(),
-      everyMinutes: null,
-      authenticator: "better-auth",
-      issuer: null,
-    });
+    await updateEmail(email.userId, email.id, { chatId: chat.id, status: "processed" });
+    return chat.id;
   }
-  await updateEmail(email.userId, email.id, { chatId: chat.id, status: "processed" });
-  return chat.id;
+
+  // Could not confirm the start (timeout, cold start, deploy). Queue a /remind
+  // follow-through instead of a plain nudge: a nudge only pings the user, and
+  // /remind checks prior sessions first, so a start that did go through is
+  // not repeated. The scheduler opens its own session, so drop this empty one.
+  await deleteChat(email.userId, chat.id);
+  await createJob(email.userId, {
+    prompt: remindFollowThroughPrompt(prompt),
+    firstRunAt: new Date().toISOString(),
+    everyMinutes: null,
+    authenticator: "better-auth",
+    issuer: null,
+  });
+  await updateEmail(email.userId, email.id, { status: "processed" });
+  return null;
 }
 
 function webhookAttachments(eventData: InboundEmailPayload): EmailRecord["attachments"] {
@@ -296,23 +306,31 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
   const storedTo = content.to.length > 0 ? content.to : toAddresses;
   const storedCc = content.cc.length > 0 ? content.cc : ccAddresses;
 
-  const email = await createEmail({
-    userId: owner.id,
-    direction: "inbound",
-    fromAddress: storedFrom || fromAddress || "unknown",
-    toAddresses: storedTo,
-    ccAddresses: storedCc,
-    subject: content.subject || eventData.subject?.trim() || "",
-    bodyText: content.bodyText,
-    bodyHtml: content.bodyHtml,
-    resendEmailId,
-    status: "received",
-    hasActionItem: false,
-    actionSummary: null,
-    chatId: null,
-    inReplyTo: null,
-    attachments: content.attachments.length > 0 ? content.attachments : webhookAttachments(eventData),
-  });
+  let email: EmailRecord;
+  try {
+    email = await createEmail({
+      userId: owner.id,
+      direction: "inbound",
+      fromAddress: storedFrom || fromAddress || "unknown",
+      toAddresses: storedTo,
+      ccAddresses: storedCc,
+      subject: content.subject || eventData.subject?.trim() || "",
+      bodyText: content.bodyText,
+      bodyHtml: content.bodyHtml,
+      resendEmailId,
+      status: "received",
+      hasActionItem: false,
+      actionSummary: null,
+      chatId: null,
+      inReplyTo: null,
+      attachments: content.attachments.length > 0 ? content.attachments : webhookAttachments(eventData),
+    });
+  } catch (error) {
+    // A concurrent delivery of the same event won the unique insert.
+    const existing = await getEmailByResendId(resendEmailId);
+    if (existing) return existing;
+    throw error;
+  }
   await persistEmailEmbeddings(email);
   await maybeStartInboundActionSession(email, recipients, fromAddress);
   return (await getEmail(owner.id, email.id)) ?? email;

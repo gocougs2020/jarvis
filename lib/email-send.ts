@@ -2,8 +2,9 @@ import { APP_NAME } from "@/lib/brand";
 import { getDocumentBlob } from "@/lib/blob-store";
 import { textToHtml } from "@/lib/email-content";
 import { persistEmailEmbeddings } from "@/lib/email-embeddings";
-import { parseAddressList } from "@/lib/email-users";
-import { composeInboundMailAddress } from "@/lib/inbound-mail-token";
+import { chooseOutboundSender } from "@/lib/email-sender";
+import { findUserById, parseAddressList } from "@/lib/email-users";
+import { composeInboundMailAddress, inboundMailboxAddress } from "@/lib/inbound-mail-token";
 import { getResend, resendConfigured } from "@/lib/resend";
 import { createEmail, ensureInboundMailToken, getDocument, updateEmail } from "@/lib/store";
 import type { EmailAttachmentMeta, EmailRecord } from "@/lib/types";
@@ -41,30 +42,37 @@ async function documentAttachments(
   return attachments;
 }
 
-export async function userAgentFromAddress(userId: string): Promise<string> {
+async function userPrivateAgentAddress(userId: string): Promise<string | null> {
   const settings = await ensureInboundMailToken(userId);
-  const address = settings.inboundMailToken
-    ? composeInboundMailAddress(settings.inboundMailToken)
-    : null;
-  if (!address) {
-    throw new Error(
-      "This user's agent address is not ready. Set RESEND_FROM_EMAIL or an inbound allowlist.",
-    );
-  }
-  return `${APP_NAME} <${address}>`;
+  return settings.inboundMailToken ? composeInboundMailAddress(settings.inboundMailToken) : null;
+}
+
+function workspaceMailbox(): string | null {
+  const configured = process.env.RESEND_FROM_EMAIL?.trim();
+  return configured || inboundMailboxAddress();
 }
 
 export async function sendUserEmail(input: SendEmailInput): Promise<EmailRecord> {
   if (!resendConfigured()) {
     throw new Error("Resend is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.");
   }
-  const from = await userAgentFromAddress(input.userId);
-
   const to = parseAddressList(input.to);
   const cc = parseAddressList(input.cc);
   if (to.length === 0) {
     throw new Error("At least one recipient is required.");
   }
+
+  const owner = await findUserById(input.userId);
+  const privateAddress = await userPrivateAgentAddress(input.userId);
+  const sender = chooseOutboundSender({
+    appName: APP_NAME,
+    ownerEmail: owner?.email,
+    ownerName: owner?.name,
+    recipients: [...to, ...cc],
+    privateAddress,
+    workspaceAddress: workspaceMailbox(),
+  });
+  const from = sender.from;
 
   const attachments = await documentAttachments(input.userId, input.documentIds);
   const attachmentMeta: EmailAttachmentMeta[] = attachments.map((attachment) => ({
@@ -96,6 +104,7 @@ export async function sendUserEmail(input: SendEmailInput): Promise<EmailRecord>
       from,
       to,
       ...(cc.length > 0 ? { cc } : {}),
+      ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
       subject: email.subject,
       text: email.bodyText,
       html: email.bodyHtml,

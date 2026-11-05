@@ -6,7 +6,7 @@ Jarvis is an opinionated but flexible, deployable workspace for quickly building
 
 Fork, configure, and deploy. Web chat, files, memory, skills, scheduled jobs, and inbox.
 
-MIT licensed. Current tag is **0.2.0** — bump `package.json` when you tag the next release. See [CHANGELOG.md](./CHANGELOG.md) if you forked and are pulling updates, plus [CONTRIBUTING.md](./CONTRIBUTING.md), [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), and [SECURITY.md](./SECURITY.md).
+MIT licensed. Current tag is **0.4.0** — bump `package.json` when you tag the next release. See [CHANGELOG.md](./CHANGELOG.md) if you forked and are pulling updates, plus [CONTRIBUTING.md](./CONTRIBUTING.md), [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), and [SECURITY.md](./SECURITY.md).
 
 Product defaults live in **[`app.config.ts`](./app.config.ts)**. Secrets and who can sign in live in environment variables.
 
@@ -160,7 +160,7 @@ Until one of those is set, the checklist stays on `/`, and anyone who finds the 
 
 After that, the setup page is gone. Open the site, create your account, and confirm the verification email. Production sends that link through Resend (`RESEND_API_KEY`). Local `npm run dev` without Resend prints the link in the server log.
 
-Optional later: `OPENAI_API_KEY` for voice input, and the rest of the `RESEND_*` keys for Inbox — see [Environment variables](#environment-variables).
+Voice input needs nothing extra: it runs through AI Gateway like chat. Optional later: the rest of the `RESEND_*` keys for Inbox — see [Environment variables](#environment-variables).
 
 Signup, sign-in, transcription, and a few generate routes are rate-limited per server instance. That is a burst brake, not a global quota — the allowlist is the real spend control.
 
@@ -170,7 +170,7 @@ When you want to change the product name, home-page chips, or models, edit `app.
 
 The **Set up your workspace** page on `/` stays up until `ALLOWED_SIGNUP_EMAILS` or `ALLOWED_SIGNUP_DOMAINS` is set in that environment (`.env.local` on your computer, Vercel env on the live site). Locally the list is secret, AI Gateway key, and allowlist. On Vercel it is the project env that production needs. Other completed checklist items do not hide it. Then the home page is signed-in chat.
 
-Signed-in users can still open **Settings → Setup** (`/settings/setup`) to see remaining environment settings — voice (`OPENAI_API_KEY`), Inbox (`RESEND_*`), the Account usage allowlist, and any unfinished host steps. The page never prints secret values.
+Signed-in users can still open **Settings → Setup** (`/settings/setup`) to see remaining environment settings — Inbox (`RESEND_*`), the Account usage allowlist, and any unfinished host steps. The page never prints secret values.
 
 ## Remove the in-app setup page
 
@@ -185,7 +185,7 @@ Leave `lib/setup-status.ts` and the public checklist on `/` in place. Those stil
 
 - Signed-in web chat at `/`, with sessions under `/s/[chatId]`
 - Files you can edit, attach to a session, and share (uploads up to 15 MB; markdown, CSV, JSON, PDF, PNG, JPEG, WebP, GIF, and HTML)
-- Inbox for mail the agent sends or receives through Resend, with search. Settings → Inbox has each user's send/receive plus-address (`agent+k7xqm-2n4pw@…`). Inbound mail is stored as HTML and plain text and embedded for later search. Unattended sessions start only from that user's account email; rotate the plus-address there if it leaks.
+- Inbox for mail the agent sends or receives through Resend, with search. Settings → Inbox has each user's private plus-address (`agent+k7xqm-2n4pw@…`). It only appears on mail the agent sends to you; mail to anyone else comes from the shared workspace mailbox as "Your Name via Jarvis" with replies going to your own inbox. Inbound mail is stored as HTML and plain text and embedded for later search. Unattended sessions start only from that user's account email; rotate the plus-address there if it leaks.
 - Built-in skills for work, home, and a couple of creative examples (research, writing, meeting prep, household plans, reminders, images, and more)
 - Long-term sticky-note memory (Settings → Memory), related-session citations, and tight-match context on nudge reminder emails
 - Optional Resend send/receive. Add other services in `agent/connections/` if you need them.
@@ -272,7 +272,9 @@ Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a ses
 | `compaction` | Context-window checkpoints | `openai/gpt-5.6-luna` |
 | `embeddings` | Session, file, and inbox email embeddings | `openai/text-embedding-3-small` |
 | `imageGeneration` | `generate_image` | `openai/gpt-image-2` |
-| `transcription` | Voice input (OpenAI Audio API) | `gpt-transcribe` |
+| `transcription` | Voice input (AI Gateway, same credentials as chat) | `openai/gpt-transcribe` |
+
+Any AI Gateway model ID works, including other providers (`anthropic/…`, `google/…`). The `reason` and `complex` routes turn on each provider's own deeper-reasoning option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults.
 
 If you change a chat model ID, add its context window under `models.contextWindows` (tokens). Unknown IDs fall back to `1_050_000`. Compaction and the session context chip use `min(256_000, 90% of that catalog size)` so a million-token model does not fill its full window.
 
@@ -349,9 +351,8 @@ ALLOWED_ACCOUNT_USAGE_EMAILS=ada@agency.com
 | `ALLOWED_ACCOUNT_USAGE_EMAILS` | Optional | Comma-separated emails that can see the Account usage tab |
 | `RATE_LIMIT_DISABLED` | Local only | Set to `1` to skip the in-process limiter during soak tests. Ignored in production. |
 | `VERCEL_TOKEN` | Optional | Personal token so the app can read the Vercel team billing plan. Without it, the host is treated as Hobby: scheduled jobs at most once a day, and the dispatcher compiles to a daily cron. Pro or Enterprise unlocks hourly and minute-level jobs after a redeploy. |
-| `EMAIL_SESSION_SECRET` | Optional | Shared secret for unattended schedule and inbound-email session starts. Falls back to `RESEND_WEBHOOK_SECRET`, then `BETTER_AUTH_SECRET`. |
+| `EMAIL_SESSION_SECRET` | Optional | Shared secret for unattended schedule and inbound-email session starts. When unset, one is derived from `BETTER_AUTH_SECRET`, so most deploys can leave this out. |
 | `AI_GATEWAY_API_KEY` | Local | AI Gateway. On Vercel, OIDC from the linked project can replace this. |
-| `OPENAI_API_KEY` | For voice | Transcription via `gpt-transcribe` |
 | `DATABASE_URL` | Production | Neon Postgres. Unset locally → SQLite + `.data/app.json` |
 | `BLOB_READ_WRITE_TOKEN` | Production | Vercel Blob for private files and file memory. Local fallback is `.data/blobs/` |
 | `RESEND_API_KEY` | Signup + Inbox | Verification emails on signup, plus agent send/receive. Get a key at [resend.com/api-keys](https://resend.com/api-keys). Required for production signup. Local `npm run dev` without it prints the verification URL in the server log. |
@@ -378,11 +379,18 @@ npx eve deploy --non-interactive --yes
 
 Set `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (your production URL — each clone or fork must set its own), `DATABASE_URL`, and `RESEND_API_KEY` on the project before the first production signup. Verification emails will not send without Resend. `npm run dev` does not fire eve schedules on their cron; use **Settings → Schedules → Run now**. A production deploy turns `agent/schedules/dispatcher.ts` into a Vercel Cron Job — confirm it under **Settings → Cron Jobs**. The host is treated as Hobby unless you set `VERCEL_TOKEN` and the billing API reports Pro or Enterprise: then a redeploy compiles a per-minute dispatcher and Settings / the agent allow hourly jobs. Hobby stays daily. `BETTER_AUTH_URL` must be the public origin so the dispatcher can start sessions. If Deployment Protection is on, enable the project’s automation bypass secret so that self-call can get through. Production auth trusts that origin plus localhost; it does not allow every `*.vercel.app` host. Preview deployments still accept the Vercel wildcard. Add Blob (`BLOB_READ_WRITE_TOKEN`) so files and sticky-note memory persist across deploys. Set `ALLOWED_SIGNUP_EMAILS` and/or `ALLOWED_SIGNUP_DOMAINS` on the project (not in `app.config.ts`) so the setup checklist leaves the home page and only those people can sign up or stay signed in. Optionally add `BLOCKED_ACCESS_EMAILS`. To show the Account usage tab to specific people, set `ALLOWED_ACCOUNT_USAGE_EMAILS`.
 
-Signup verification uses the same `RESEND_API_KEY` (and `RESEND_FROM_EMAIL` when set). Workspace notices such as that verification mail come from `RESEND_FROM_EMAIL`. User send and receive use each person's plus-address (Settings → Inbox), not the shared mailbox. Enable receiving on a Resend domain and point a webhook at `https://your-app.vercel.app/api/webhooks/resend` for `email.received`. Store the signing secret as `RESEND_WEBHOOK_SECRET`. Events for other addresses on the same Resend account are ignored unless they match `RESEND_FROM_EMAIL`, `RESEND_INBOUND_ADDRESSES`, or `RESEND_INBOUND_DOMAINS`. The `email.received` webhook is metadata only; the app then calls Resend `emails.receiving.get` (and raw MIME if needed) so each message is stored as HTML and plain text and embedded for inbox search. Mail to a user's plus-address is cataloged for that user. An unattended session starts only when From is that user's account email and the message looks like an action. A matching From alone is not enough (From is spoofable). Treat the plus-address like a password and rotate it if it leaks. Scheduled one-off reminders send to the signed-in user's account email from their agent address and include a link to the reminder session. A nudge may attach at most one prior session and one file, and only when those embeddings clear the reminder floors in `app.config.ts` (`memory.reminderContextMinScore` / `reminderContextBodyMinScore`).
+Signup verification uses the same `RESEND_API_KEY` (and `RESEND_FROM_EMAIL` when set). Workspace notices such as that verification mail come from `RESEND_FROM_EMAIL`. Each person receives at their private plus-address (Settings → Inbox). The agent sends from that plus-address only to the account owner; mail to anyone else goes out from `RESEND_FROM_EMAIL` as "Name via Jarvis" with `Reply-To` set to the owner, so the plus-address never leaks to third parties. Enable receiving on a Resend domain and point a webhook at `https://your-app.vercel.app/api/webhooks/resend` for `email.received`. Store the signing secret as `RESEND_WEBHOOK_SECRET`. Events for other addresses on the same Resend account are ignored unless they match `RESEND_FROM_EMAIL`, `RESEND_INBOUND_ADDRESSES`, or `RESEND_INBOUND_DOMAINS`. The `email.received` webhook is metadata only; the app then calls Resend `emails.receiving.get` (and raw MIME if needed) so each message is stored as HTML and plain text and embedded for inbox search. Mail to a user's plus-address is cataloged for that user. An unattended session starts only when From is that user's account email and the message looks like an action. A matching From alone is not enough (From is spoofable). Treat the plus-address like a password and rotate it if it leaks. Scheduled one-off reminders send to the signed-in user's account email from their agent address and include a link to the reminder session. A nudge may attach at most one prior session and one file, and only when those embeddings clear the reminder floors in `app.config.ts` (`memory.reminderContextMinScore` / `reminderContextBodyMinScore`).
 
 Pushing to a Git-connected Vercel project also deploys. Changing `app.config.ts` requires a new deploy — it is compiled into the app, not read at request time from the host disk.
 
 HTML responses send a Content-Security-Policy plus `X-Content-Type-Options`, `Referrer-Policy`, and `X-Frame-Options` from `next.config.ts`. This repo does not set HSTS so localhost stays usable; on a custom HTTPS domain, add `Strict-Transport-Security` at the host (Vercel / your CDN), not for `next dev`.
+
+### Agent safety defaults
+
+- `send_email` asks for approval in the session before it sends, except on an unattended reminder to the account owner with no `cc`. Approve or deny in the chat.
+- The agent's sandbox (`bash`) has no outbound network by default (`security.sandboxNetwork` in `app.config.ts`). Web access goes through `web_search` and `web_fetch`, which run in the app.
+- Files are served inline only for images, PDF, plain text, Markdown, CSV, and JSON, under a sandboxing CSP. Everything else downloads.
+- An eve session that is recorded on another user's chat cannot be continued or streamed by someone else.
 
 ## Customize the agent beyond the config file
 

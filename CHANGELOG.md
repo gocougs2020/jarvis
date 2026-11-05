@@ -6,6 +6,28 @@ When you pull `main`, keep your customized [`app.config.ts`](./app.config.ts) �
 
 The matching git tag is the baseline to sync against. Bump `package.json` when you tag the next release.
 
+## 0.4.0 — 2026-11-05
+
+Security
+- `send_email` on an unattended reminder skips approval only when it goes to the account owner with no `cc`. Before, a reminder could add any `cc` without approval.
+- The private plus-address no longer appears in the From of mail to other people. That mail comes from `RESEND_FROM_EMAIL` as "Name via Jarvis" with `Reply-To` set to the owner. **Rotate plus-addresses** (Settings → Inbox) if the agent has emailed outside contacts before this release.
+- Server-to-self calls use a secret derived from `BETTER_AUTH_SECRET` (or `EMAIL_SESSION_SECRET`), compared in constant time. They no longer reuse `RESEND_WEBHOOK_SECRET` or send `BETTER_AUTH_SECRET` raw, and they never build URLs from the request Host header.
+- eve sessions recorded on one user's chat can no longer be continued or streamed by another signed-in user. `PATCH /api/chats/:id` only writes title, description, session id, and stream index.
+- Uploaded filenames are reduced to a single safe segment, and local blob paths must stay under `.data/blobs` (path traversal when Blob is not configured).
+- User files are served inline only from an allowlist of types, with a sandboxing CSP. Everything else downloads.
+- Sign-in, sign-up, verification resend, and the local setup writer reject cross-site posts. The setup writer rejects multi-line values.
+- The agent sandbox has no outbound network by default (`security.sandboxNetwork` in `app.config.ts`).
+
+Fixes
+- An emailed request that cannot start right away is queued as a `/remind` follow-through instead of a plain nudge, so the work gets done once.
+- A scheduled run whose session started is not released and re-fired when later bookkeeping fails.
+- A unique index on `emails.resend_email_id` stops a webhook retry from starting a second session.
+- `create_schedule` validates `firstRunAt` and uses the cadence's own first run for repeating jobs.
+
+AI Gateway
+- Voice input runs through AI Gateway (`models.transcription`, default `openai/gpt-transcribe`). `OPENAI_API_KEY` is no longer used.
+- Deeper reasoning on the `reason` and `complex` routes works for Anthropic and xAI models as well as OpenAI.
+
 ## 0.3.0 — 2026-09-06
 
 - Email verification on signup (Resend in production; local without Resend logs the link).

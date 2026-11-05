@@ -85,8 +85,23 @@ export function inferDocumentKind(filename: string, mimeType?: string): Document
   return "other";
 }
 
+/**
+ * Reduce a client- or model-supplied filename to one safe path segment:
+ * no directories, no `..`, no control or reserved characters.
+ */
+export function safeFilename(value: string): string {
+  const base = value.split(/[\\/]/).pop() ?? "";
+  return base
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, "")
+    .replace(/^\.+/, "")
+    .trim()
+    .slice(0, 160);
+}
+
 export function filenameForDocument(title: string, kind: DocumentKind, existing?: string): string {
-  if (existing?.trim()) return existing.trim();
+  const provided = existing ? safeFilename(existing) : "";
+  if (provided) return provided;
   const slug = title
     .trim()
     .toLowerCase()

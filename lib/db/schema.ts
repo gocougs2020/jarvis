@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import {
   boolean,
@@ -8,6 +9,7 @@ import {
   pgTable,
   text as pgText,
   timestamp,
+  uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
 import type { JobCadence } from "@/lib/job-cadence";
@@ -114,17 +116,21 @@ export const pgVerification = pgTable("verification", {
   updatedAt: timestamp("updated_at"),
 });
 
-export const pgChats = pgTable("chats", {
-  id: pgText("id").primaryKey(),
-  userId: pgText("user_id").notNull(),
-  title: pgText("title").notNull(),
-  description: pgText("description").notNull().default(""),
-  source: pgText("source").notNull().default("web"),
-  sessionId: pgText("session_id"),
-  streamIndex: pgInteger("stream_index").notNull().default(0),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-});
+export const pgChats = pgTable(
+  "chats",
+  {
+    id: pgText("id").primaryKey(),
+    userId: pgText("user_id").notNull(),
+    title: pgText("title").notNull(),
+    description: pgText("description").notNull().default(""),
+    source: pgText("source").notNull().default("web"),
+    sessionId: pgText("session_id"),
+    streamIndex: pgInteger("stream_index").notNull().default(0),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [index("chats_session_id_idx").on(table.sessionId)],
+);
 
 export const pgChatEvents = pgTable("chat_events", {
   id: pgText("id").primaryKey(),
@@ -288,6 +294,9 @@ export const pgEmails = pgTable(
   (table) => [
     index("emails_user_id_idx").on(table.userId),
     index("emails_resend_id_idx").on(table.resendEmailId),
+    uniqueIndex("emails_resend_id_unique_idx")
+      .on(table.resendEmailId)
+      .where(sql`${table.resendEmailId} IS NOT NULL`),
   ],
 );
 

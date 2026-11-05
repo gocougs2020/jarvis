@@ -481,19 +481,9 @@ export function SetupChecklist({
               title="Voice input"
             >
               <p>
-                Add <code className="font-mono">OPENAI_API_KEY</code>
-                {status.hosted ? (
-                  <>
-                    {" "}
-                    on this Vercel project if you want spoken prompts. Chat still works without it.
-                  </>
-                ) : (
-                  <>
-                    {" "}
-                    in <code className="font-mono">.env.local</code> if you want spoken prompts.
-                    Chat still works without it.
-                  </>
-                )}
+                Voice input uses AI Gateway, like chat, so it works once the Gateway step is done.
+                Pick the model with <code className="font-mono">models.transcription</code> in{" "}
+                <code className="font-mono">app.config.ts</code>.
               </p>
             </SetupStep>
             <SetupStep

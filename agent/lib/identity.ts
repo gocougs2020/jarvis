@@ -57,6 +57,31 @@ export function isSelfSendTarget(to?: string | null): boolean {
   return !trimmed || SELF_RECIPIENTS.has(trimmed.toLowerCase());
 }
 
+function hasValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return value != null;
+}
+
+/**
+ * Unattended reminder runs may email the signed-in user without approval, and
+ * nobody else. Any `cc`, or a named `to`, needs a person to approve — otherwise
+ * text injected into a shared file or a forwarded email could add an outside
+ * recipient to a reminder that nobody reviews.
+ */
+export function sendEmailNeedsApproval(
+  attributes: Readonly<Record<string, unknown>> | null | undefined,
+  toolInput: unknown,
+): boolean {
+  const reminder = attributes?.source === "schedule" && attributes?.reminder === "1";
+  if (!reminder) return true;
+  const input = (toolInput ?? {}) as { to?: unknown; cc?: unknown };
+  const to = typeof input.to === "string" ? input.to : undefined;
+  if (input.to !== undefined && typeof input.to !== "string") return true;
+  if (!isSelfSendTarget(to)) return true;
+  return hasValue(input.cc);
+}
+
 /** Omit `to`, or pass "me" / "my email", to send to the signed-in account. */
 export async function resolveSendTo(
   user: { userId: string; email: string | null },

@@ -5,6 +5,7 @@ import { getAuth } from "@/lib/auth";
 import { VERIFY_EMAIL_CALLBACK_PATH } from "@/lib/auth-email";
 import { authFormErrorMessage, formField } from "@/lib/auth-form";
 import { ensureNeonAuthSchema } from "@/lib/db";
+import { isCrossSiteRequest } from "@/lib/internal-auth";
 import { clientKey, RATE_LIMIT_MESSAGE, rateLimit } from "@/lib/rate-limit";
 
 function verificationReturnPath(value: string): "/sign-in" | "/sign-up" {
@@ -12,6 +13,9 @@ function verificationReturnPath(value: string): "/sign-in" | "/sign-up" {
 }
 
 export async function POST(request: NextRequest) {
+  if (isCrossSiteRequest(request)) {
+    return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
+  }
   const formData = await request.formData();
   const next = verificationReturnPath(formField(formData, "next"));
   const dest = new URL(next, request.url);

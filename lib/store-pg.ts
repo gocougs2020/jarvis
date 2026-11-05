@@ -300,6 +300,16 @@ export async function getChatByEveSessionId(
   return row ? mapChat(row) : null;
 }
 
+/** Every user whose chat records this eve session id (normally zero or one). */
+export async function listChatOwnersForEveSession(eveSessionId: string): Promise<string[]> {
+  const rows = await getNeonDb()
+    .select({ userId: pgChats.userId })
+    .from(pgChats)
+    .where(eq(pgChats.sessionId, eveSessionId))
+    .limit(10);
+  return [...new Set(rows.map((row) => row.userId))];
+}
+
 export async function listChatEvents(chatId: string): Promise<ChatEventRecord[]> {
   const rows = await getNeonDb()
     .select()
