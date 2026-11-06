@@ -95,6 +95,14 @@ describe("email cards", () => {
     });
   });
 
+  it("links only in-app paths", () => {
+    const card = (href: string) =>
+      emailCardFields({ ...tool("send_email"), output: { sent: true, href } }).href;
+    expect(card("/inbox/e1")).toBe("/inbox/e1");
+    expect(card("//evil.test/x")).toBeUndefined();
+    expect(card("javascript:alert(1)")).toBeUndefined();
+  });
+
   it("reports approvals, drafts, and failed sends", () => {
     expect(emailCardStatus(tool("send_email", {}, "approval-requested"))).toBe("awaiting-approval");
     expect(emailCardStatus({ ...tool("draft_email"), output: { status: "draft" } })).toBe("draft");

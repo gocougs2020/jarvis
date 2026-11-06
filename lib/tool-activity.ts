@@ -259,7 +259,9 @@ export function emailCardFields(part: ToolLike & { readonly output?: unknown }):
     subject: stringField(output, "subject") ?? stringField(input, "subject"),
     body: stringField(input, "body", "text"),
     attachmentCount: documentIds,
-    href: typeof output.href === "string" ? output.href : undefined,
+    // Only an in-app path: the card links it, so never a scheme or another host.
+    href:
+      typeof output.href === "string" && /^\/(?!\/)/.test(output.href) ? output.href : undefined,
     message: typeof output.message === "string" ? output.message : undefined,
   };
 }
