@@ -15,6 +15,8 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
   "font-src 'self' data:",
+  // Voice mode plays spoken replies from blob: URLs when Web Audio is unavailable.
+  "media-src 'self' blob:",
   // Browser traffic stays same-origin. OpenAI / Blob / AI Gateway are server-side.
   "connect-src 'self'",
   // mermaid and shiki spawn blob workers; defaulting to script-src would block them.

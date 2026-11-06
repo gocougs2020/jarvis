@@ -343,7 +343,7 @@ voice: {
 },
 ```
 
-The waveform button next to the mic turns on voice mode for that browser. A finished recording is sent as the prompt right away (transcribed by `models.transcription`), and when the turn settles the reply is read aloud by `models.speech` in `speechVoice` (Grok TTS voices: `ara`, `eve`, `leo`, `rex`, `sal`). Markdown, code blocks, links, and citation markers are dropped first, and replies longer than `maxSpeechChars` are cut at a sentence boundary. Tap the mic again to interrupt playback. Voice mode keeps the full agent (tools, files, memory) in the loop; it is not a separate realtime speech-to-speech model.
+The waveform button next to the mic turns on hands-free voice mode for that browser. It starts listening right away and shows a live waveform; when you stop talking (about 1.3 seconds of quiet) the recording is transcribed by `models.transcription` and sent. The composer shows **Thinking…** while the agent works, then the reply is read aloud by `models.speech` in `speechVoice` (Grok TTS voices: `ara`, `eve`, `leo`, `rex`, `sal`) with a waveform, and then it listens again. Markdown, code blocks, links, and citation markers are dropped first, and replies longer than `maxSpeechChars` are cut at a sentence boundary. Tap the mic to interrupt a reply, the check to send early, or **End voice** to leave voice mode. If nobody speaks for about 12 seconds it stops listening until you tap the mic. Voice mode keeps the full agent (tools, files, memory) in the loop; it is not a separate realtime speech-to-speech model.
 
 ### In-app setup page
 
