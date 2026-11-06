@@ -67,6 +67,8 @@ import {
   quickHandoffContext,
   quickHistoryFromEvents,
   quickTurnEvents,
+  quickTurnsFromEvents,
+  splitQuickEvents,
   readQuickReply,
   startsWithSkillMention,
   type QuickDecisionEvent,
@@ -140,8 +142,10 @@ export function AgentChat(props: AgentChatProps) {
   // replays the server stream from the start and dedupes by id, so hydrating
   // them would duplicate earlier replies: when resuming, start empty and let
   // the replay rebuild the transcript. Keyed to `resume` so the two never
-  // disagree (an emptied transcript always replays).
-  const hydrationFor = (resuming: boolean) => (resuming ? [] : [...(props.initialEvents ?? [])]);
+  // disagree (an emptied transcript always replays). Quick answers are the
+  // exception: the server stream never had them, so they are kept.
+  const hydrationFor = (resuming: boolean) =>
+    resuming ? splitQuickEvents(props.initialEvents ?? []).quick : [...(props.initialEvents ?? [])];
   const hydratedEventsRef = useRef(hydrationFor(resume));
   const hydratedChatKeyRef = useRef(chatKey);
   const remountingRef = useRef(false);
@@ -289,17 +293,22 @@ function AgentChatSession({
   const sentPending = useRef(false);
   const liveTurnRef = useRef(false);
   const markSessionActivityRef = useRef<() => void>(() => undefined);
-  const eventsRef = useRef<MessageStreamEvent[]>([...initialEvents]);
+  // Quick answers stay outside the eve store (see splitQuickEvents); they
+  // always come before the agent's turns in the chat log.
+  const [initialSplit] = useState(() => splitQuickEvents(initialEvents));
+  const eventsRef = useRef<MessageStreamEvent[]>([...initialSplit.quick, ...initialSplit.agent]);
   const sendRef = useRef<ReturnType<typeof useEveAgent>["send"] | undefined>(undefined);
   const sendErrorRef = useRef<string | undefined>(undefined);
   // Instant replies answered before any agent session exists. They render
   // from this state while live; their events are saved to the chat log so a
   // reload replays them through the eve reducer like any other turn.
-  const [quickTurns, setQuickTurns] = useState<QuickTurnView[]>([]);
+  const [quickTurns, setQuickTurns] = useState<QuickTurnView[]>(() =>
+    quickTurnsFromEvents(initialSplit.quick).map((turn) => ({ ...turn, streaming: false })),
+  );
   const [quickBusy, setQuickBusy] = useState(false);
   // One-line acknowledgment shown while the agent spins up after a hand-off.
   const [quickAck, setQuickAck] = useState<string>();
-  const quickEventsRef = useRef<MessageStreamEvent[]>([]);
+  const quickEventsRef = useRef<MessageStreamEvent[]>(initialSplit.quick);
   const quickAbortRef = useRef<{ controller: AbortController; cancelled: boolean } | undefined>(
     undefined,
   );
@@ -519,7 +528,7 @@ function AgentChatSession({
       const chatId = activeChatRef.current?.id;
       return chatId ? { [WEB_CHAT_ID_HEADER]: chatId } : {};
     },
-    initialEvents,
+    initialEvents: initialSplit.agent,
     initialSession:
       chat?.sessionId
         ? {
@@ -564,7 +573,7 @@ function AgentChatSession({
       if (session) persistSession(session);
     },
     onFinish(snapshot) {
-      // Quick answers from this mount precede every agent turn but are not in the eve store.
+      // Quick answers precede every agent turn and are never in the eve store.
       eventsRef.current = [...quickEventsRef.current, ...snapshot.events];
       onHydrateEvents(eventsRef.current);
       setQuickAck(undefined);
@@ -905,7 +914,12 @@ function AgentChatSession({
         !startsWithSkillMention(text) &&
         !activeChatRef.current?.sessionId &&
         !hasAgentEvents(eventsRef.current);
-      let handoff: QuickHandoff = {};
+      // The agent never saw earlier quick answers; give them to its first turn
+      // even when this prompt skips the quick layer (attachments, a /skill).
+      const agentStarted = Boolean(activeChatRef.current?.sessionId) || hasAgentEvents(eventsRef.current);
+      let handoff: QuickHandoff = agentStarted
+        ? {}
+        : { clientContext: quickHandoffContext(quickHistoryFromEvents(eventsRef.current)) };
       if (quickEligible) {
         setCreating(false);
         const quick = await runQuickReply(text, chatId);

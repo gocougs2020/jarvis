@@ -72,18 +72,41 @@ export function quickTurnEvents(
   ] as MessageStreamEvent[];
 }
 
-/** Quick answers saved in a chat log, oldest first. */
-export function quickHistoryFromEvents(events: readonly MessageStreamEvent[]): QuickHistoryTurn[] {
-  const turns = new Map<string, { prompt: string; reply: string }>();
+/** Quick answers saved in a chat log, oldest first, with their turn ids. */
+export function quickTurnsFromEvents(
+  events: readonly MessageStreamEvent[],
+): (QuickHistoryTurn & { readonly turnId: string })[] {
+  const turns = new Map<string, { turnId: string; prompt: string; reply: string }>();
   for (const event of events) {
     if (!isQuickEvent(event)) continue;
     const turnId = eventTurnId(event) as string;
-    const turn = turns.get(turnId) ?? { prompt: "", reply: "" };
+    const turn = turns.get(turnId) ?? { turnId, prompt: "", reply: "" };
     if (event.type === "message.received") turn.prompt = event.data.message;
     if (event.type === "message.completed") turn.reply = event.data.message ?? "";
     turns.set(turnId, turn);
   }
   return [...turns.values()].filter((turn) => turn.prompt && turn.reply);
+}
+
+/** Quick answers saved in a chat log, oldest first. */
+export function quickHistoryFromEvents(events: readonly MessageStreamEvent[]): QuickHistoryTurn[] {
+  return quickTurnsFromEvents(events).map(({ prompt, reply }) => ({ prompt, reply }));
+}
+
+/**
+ * Quick turns never enter the eve store: eve's resume replays only the
+ * server stream, which never had them, and live quick turns are added
+ * outside the store. Keeping them apart in every case means they always
+ * render, and are saved, ahead of the agent's turns.
+ */
+export function splitQuickEvents(events: readonly MessageStreamEvent[]): {
+  readonly quick: MessageStreamEvent[];
+  readonly agent: MessageStreamEvent[];
+} {
+  return {
+    quick: events.filter(isQuickEvent),
+    agent: events.filter((event) => !isQuickEvent(event)),
+  };
 }
 
 /**

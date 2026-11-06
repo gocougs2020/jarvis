@@ -6,6 +6,8 @@ import {
   quickHandoffContext,
   quickHistoryFromEvents,
   quickTurnEvents,
+  quickTurnsFromEvents,
+  splitQuickEvents,
   startsWithSkillMention,
 } from "./quick-reply-client";
 import { signQuickRouteHint, verifyQuickRouteHint } from "./quick-route-hint";
@@ -113,6 +115,18 @@ describe("quick turn events", () => {
     expect(history).toEqual([{ prompt: "What day is it?", reply: "It is Friday." }]);
     expect(quickHandoffContext(history)).toContain("Assistant: It is Friday.");
     expect(quickHandoffContext([])).toBeUndefined();
+  });
+
+  it("split out of a stored log so they always come before the agent's turns", () => {
+    const agentEvent = {
+      type: "turn.started",
+      data: { sequence: 0, turnId: "turn_1" },
+      meta: { at: "", id: "1" },
+    } as MessageStreamEvent;
+    const later = quickTurnEvents("quick_2", "And tomorrow?", "Saturday.");
+    const { quick, agent } = splitQuickEvents([...events, agentEvent, ...later]);
+    expect(agent).toEqual([agentEvent]);
+    expect(quickTurnsFromEvents(quick).map((turn) => turn.turnId)).toEqual(["quick_1", "quick_2"]);
   });
 
   it("skips the quick layer for a skill mention", () => {
