@@ -8,10 +8,11 @@ import {
   replyInInboxThread,
   requireUserResendInbox,
   sendInboxDraft,
+  RESEND_ID_PATTERN,
 } from "../../lib/resend-inbox";
 
 const inputSchema = z.object({
-  threadId: z.string().min(1),
+  threadId: z.string().regex(RESEND_ID_PATTERN),
   mode: z
     .enum(["draft", "send", "send_draft"])
     .describe(
@@ -24,11 +25,12 @@ const inputSchema = z.object({
   html: z.string().optional().describe("Optional HTML body. Defaults to the text."),
   emailId: z
     .string()
+    .regex(RESEND_ID_PATTERN)
     .optional()
     .describe("Message to reply to. Defaults to the latest inbound message in the thread."),
   replyAll: z.boolean().optional(),
   cc: z.string().optional().describe("Extra CC addresses, comma-separated (send only)."),
-  draftId: z.string().optional().describe("Draft to send (send_draft only)."),
+  draftId: z.string().regex(RESEND_ID_PATTERN).optional().describe("Draft to send (send_draft only)."),
 });
 
 export default defineTool({

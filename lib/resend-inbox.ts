@@ -188,6 +188,20 @@ export async function requireUserResendInbox(userId: string): Promise<UserResend
   return inbox;
 }
 
+/**
+ * Resend IDs are interpolated into request paths unencoded by the SDK, so a
+ * value with `/` or `..` could reach another inbox on the same API key.
+ */
+export const RESEND_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+
+function assertResendId(...ids: (string | undefined)[]): void {
+  for (const id of ids) {
+    if (id !== undefined && !RESEND_ID_PATTERN.test(id)) {
+      throw new ResendInboxError("Invalid thread, email, or draft id.");
+    }
+  }
+}
+
 export const INBOX_FOLDERS = ["inbox", "archive", "spam", "sent", "trash"] as const;
 export type InboxFolder = (typeof INBOX_FOLDERS)[number];
 export const MOVABLE_INBOX_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
@@ -305,6 +319,7 @@ function toThreadMessage(message: InboxMessage): ThreadMessage {
 }
 
 export async function readInboxThread(inboxId: string, threadId: string, limit = 25) {
+  assertResendId(threadId);
   const resend = getResend();
   const [summary, emails, drafts] = await Promise.all([
     resend.inboxes.threads.get({ inboxId, threadId }).then(unwrap),
@@ -339,6 +354,7 @@ export async function readInboxThread(inboxId: string, threadId: string, limit =
 
 /** Latest inbound message in a thread: the default target for a reply. */
 export async function latestInboundEmailId(inboxId: string, threadId: string): Promise<string | null> {
+  assertResendId(threadId);
   const emails = unwrap(
     await getResend().inboxes.threads.emails.list({ inboxId, threadId, limit: 100 }),
   ).data;
@@ -356,6 +372,7 @@ export async function replyInInboxThread(input: {
   replyAll?: boolean;
   idempotencyKey: string;
 }): Promise<string> {
+  assertResendId(input.threadId, input.emailId);
   const sent = unwrap(
     await getResend().inboxes.threads.emails.reply(
       {
@@ -381,6 +398,7 @@ export async function draftInboxReply(input: {
   html?: string;
   idempotencyKey: string;
 }): Promise<string> {
+  assertResendId(input.threadId, input.emailId);
   const draft = unwrap(
     await getResend().inboxes.drafts.create(
       {
@@ -412,6 +430,7 @@ export async function sendInboxDraft(input: {
   replyAll?: boolean;
   idempotencyKey: string;
 }): Promise<string> {
+  assertResendId(input.threadId, input.draftId);
   const resend = getResend();
   const draft = unwrap(await resend.inboxes.drafts.get({ draftId: input.draftId, inboxId: input.inboxId }));
   if (draft.thread_id !== input.threadId || !draft.reply_to_email_id) {
@@ -444,6 +463,7 @@ export async function organizeInboxThread(input: {
 }) {
   const resend = getResend();
   const { inboxId, threadId } = input;
+  assertResendId(threadId);
   if (input.folder !== undefined || input.read !== undefined) {
     const patch =
       input.folder !== undefined
@@ -484,5 +504,6 @@ export async function organizeInboxThread(input: {
 }
 
 export async function getInboxThreadEmail(inboxId: string, threadId: string, emailId: string) {
+  assertResendId(threadId, emailId);
   return unwrap(await getResend().inboxes.threads.emails.get({ emailId, inboxId, threadId }));
 }
