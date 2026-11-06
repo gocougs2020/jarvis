@@ -39,11 +39,15 @@ export default defineChannel({
 
       const continueSessionId = body.continueSessionId?.trim();
       if (continueSessionId) {
-        // Only the session recorded on this user's chat may be continued.
+        // Only the session recorded on this user's chat may be continued, and
+        // only a chat that email started: web chats are used on the web only.
         const { getChat, updateChat } = await import("../../lib/store");
         const chat = chatId ? await getChat(body.userId, chatId) : null;
         if (!chat || chat.sessionId !== continueSessionId) {
           return Response.json({ error: "chat_session_mismatch" }, { status: 409 });
+        }
+        if (chat.source !== "email") {
+          return Response.json({ error: "chat_not_email" }, { status: 409 });
         }
         // Queue behind a turn the owner may be running in the browser.
         const result = await attachSession(continueSessionId).send(body.prompt, {

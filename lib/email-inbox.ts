@@ -359,10 +359,19 @@ export async function findRepliedAgentEmail(
 }
 
 /**
- * Send an emailed reply into the chat session that wrote the email it
+ * Only a chat that email started may be continued by email. A chat started
+ * on the web (or by a schedule) is used on the web only; a reply to its mail
+ * opens a new email chat that links back to it instead.
+ */
+export function chatAcceptsEmailTurns(chat: Pick<ChatRecord, "source" | "sessionId">): boolean {
+  return chat.source === "email" && Boolean(chat.sessionId);
+}
+
+/**
+ * Send an emailed reply into the email chat session that wrote the email it
  * answers. True when that session took the turn (or may have, after a
- * timeout); false when it cannot continue and the caller should start a new
- * session instead.
+ * timeout); false when it cannot or may not continue and the caller should
+ * start a new session instead.
  */
 async function continueRepliedChat(
   email: EmailRecord,
@@ -370,7 +379,7 @@ async function continueRepliedChat(
   prompt: string,
 ): Promise<boolean> {
   const sessionId = replied.chat.sessionId;
-  if (!sessionId) return false;
+  if (!sessionId || !chatAcceptsEmailTurns(replied.chat)) return false;
   const start = await startEmailSessionNow(email, prompt, replied.chat.id, sessionId);
   if (start.status === "not-started") return false;
   await updateEmail(email.userId, email.id, { chatId: replied.chat.id, status: "processed" });
@@ -431,7 +440,12 @@ async function startActionSessionIfRequested(
     if (continued) return;
     await startEmailActionSession(
       withAction,
-      withNote(emailReplyHandoffPrompt(withAction, replied.email, classified), options.threadNote),
+      withNote(
+        emailReplyHandoffPrompt(withAction, replied.email, classified, {
+          reason: replied.chat.source === "email" ? "unavailable" : "web-only",
+        }),
+        options.threadNote,
+      ),
     );
     return;
   }

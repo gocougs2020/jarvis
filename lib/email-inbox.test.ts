@@ -72,7 +72,7 @@ vi.mock("@/lib/store", () => ({
 }));
 
 import { ReceivedEmailContentError } from "@/lib/email-content";
-import { processInboundResendEmail } from "@/lib/email-inbox";
+import { chatAcceptsEmailTurns, processInboundResendEmail } from "@/lib/email-inbox";
 
 const ENV_KEYS = ["RESEND_FROM_EMAIL"] as const;
 const original: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
@@ -334,7 +334,7 @@ describe("replies to agent email", () => {
     userId: "user-1",
     title: "Heat pumps",
     description: "",
-    source: "web",
+    source: "email",
     sessionId: "wrun_brief",
     streamIndex: 42,
     createdAt: "2026-09-10T11:00:00.000Z",
@@ -477,6 +477,35 @@ describe("replies to agent email", () => {
     expect(mocks.updateChat).toHaveBeenCalledWith("user-1", "chat-new", { sessionId: "wrun_new" });
   });
 
+  it("never sends an emailed reply into a chat started on the web", async () => {
+    mocks.getChat.mockResolvedValue({ ...chat, source: "web" });
+    fetchMock.mockResolvedValue(Response.json({ sessionId: "wrun_new" }));
+
+    await processInboundResendEmail({ ...inbound, subject: replyContent.subject });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const handoff = dispatchBody();
+    expect(handoff.continueSessionId).toBeUndefined();
+    expect(handoff.chatId).toBe("chat-new");
+    expect(handoff.prompt).toContain("(/s/chat-brief) was not started by email");
+    expect(handoff.prompt).toContain("Here is the brief.");
+    expect(mocks.createChat).toHaveBeenCalledWith("user-1", expect.any(String), "email");
+    expect(mocks.updateEmail).toHaveBeenCalledWith(
+      "user-1",
+      "mail-reply",
+      expect.objectContaining({ chatId: "chat-new", status: "processed" }),
+    );
+  });
+
+  it("treats a chat a schedule started as web-only too", async () => {
+    mocks.getChat.mockResolvedValue({ ...chat, source: "schedule" });
+    fetchMock.mockResolvedValue(Response.json({ sessionId: "wrun_new" }));
+
+    await processInboundResendEmail({ ...inbound, subject: replyContent.subject });
+    expect(dispatchBody().continueSessionId).toBeUndefined();
+    expect(dispatchBody().chatId).toBe("chat-new");
+  });
+
   it("files a reply with no ask under its conversation without running a turn", async () => {
     mocks.classifyEmailAction.mockResolvedValue({ hasActionItem: false, summary: "", prompt: "" });
 
@@ -502,5 +531,14 @@ describe("replies to agent email", () => {
     await processInboundResendEmail({ ...inbound, from: "eve@example.com", subject: replyContent.subject });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.listEmails).not.toHaveBeenCalled();
+  });
+});
+
+describe("chatAcceptsEmailTurns", () => {
+  it("allows only chats that email started and that have a session", () => {
+    expect(chatAcceptsEmailTurns({ source: "email", sessionId: "wrun_1" })).toBe(true);
+    expect(chatAcceptsEmailTurns({ source: "web", sessionId: "wrun_1" })).toBe(false);
+    expect(chatAcceptsEmailTurns({ source: "schedule", sessionId: "wrun_1" })).toBe(false);
+    expect(chatAcceptsEmailTurns({ source: "email", sessionId: null })).toBe(false);
   });
 });
