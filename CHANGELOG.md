@@ -28,6 +28,8 @@ Voice
 - `models.transcription` defaults to `spacexai/grok-stt` (was `openai/gpt-transcribe`).
 - New `models.speech` (`spacexai/grok-tts`) and `voice` block (`speechVoice`, `maxSpeechChars`) in `app.config.ts`. **Add both when you merge** if you keep your own config.
 - Voice mode: the waveform button next to the mic sends a recording as soon as it is transcribed and reads the reply aloud. New route `POST /api/speech`; usage is logged under "Voice replies".
+- Voice mode is hands-free: turning it on starts listening right away, the recording is sent when you stop talking, and the composer shows a live waveform with Listening / Thinking / Speaking states. After the reply is read aloud it listens again. **End voice** turns it off.
+- Spoken replies now play. The CSP had no `media-src`, so the browser blocked the `blob:` audio and the failure was silent. Replies now play through Web Audio, and `media-src 'self' blob:` is allowed for the fallback.
 
 ## 0.4.0 — 2026-11-05
 

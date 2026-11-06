@@ -2,7 +2,14 @@
 
 import type { ChatStatus } from "ai";
 import { ArrowUpIcon, AudioLinesIcon, CheckIcon, MicIcon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from "react";
 import { AttachmentGallery } from "@/components/attachment-gallery";
 import {
   PromptInput,
@@ -22,21 +29,31 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { PromptSkillInput } from "@/components/prompt-skill-input";
 import { Spinner } from "@/components/ui/spinner";
+import { VoiceWaveform } from "@/components/voice-waveform";
 import { appConfig } from "@/app.config";
+import { useVoiceActivity } from "@/hooks/use-voice-activity";
+import { useVoiceRecording } from "@/hooks/use-voice-recording";
 import { cn } from "@/lib/utils";
-import { setVoiceMode, stopSpeaking, useVoiceMode } from "@/lib/voice-mode";
+import {
+  getSpeechAnalyser,
+  getVoiceSession,
+  primeVoiceAudio,
+  setVoiceLoop,
+  setVoiceMode,
+  stopSpeaking,
+  useVoiceSession,
+} from "@/lib/voice-mode";
 
-type VoiceState = "idle" | "listening" | "transcribing";
+/** What the hands-free voice panel is showing. */
+type VoicePhase = "idle" | "listening" | "transcribing" | "thinking" | "speaking";
 
-function pickRecorderMimeType() {
-  if (typeof MediaRecorder === "undefined") return "audio/webm";
-  if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-    return "audio/webm;codecs=opus";
-  }
-  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
-  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
-  return "";
-}
+const voicePhaseLabel: Record<VoicePhase, string> = {
+  idle: "Tap the mic to talk",
+  listening: "Listening…",
+  speaking: "Speaking…",
+  thinking: "Thinking…",
+  transcribing: "Transcribing…",
+};
 
 function HomeSubmit({
   busy,
@@ -78,76 +95,17 @@ function HomeAttachments() {
   );
 }
 
-function ListeningWaveform({
-  paused,
-  stream,
-}: {
-  readonly paused?: boolean;
-  readonly stream?: MediaStream;
-}) {
-  const [levels, setLevels] = useState(() => Array.from({ length: 28 }, () => 0.18));
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduceMotion(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  useEffect(() => {
-    if (!stream || paused || reduceMotion) return;
-    const context = new AudioContext();
-    const source = context.createMediaStreamSource(stream);
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 64;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    let frame = 0;
-
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      setLevels(
-        Array.from({ length: 28 }, (_, index) => {
-          const sample = data[Math.floor((index / 28) * data.length)] ?? 0;
-          return Math.max(0.12, sample / 255);
-        }),
-      );
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      source.disconnect();
-      void context.close();
-    };
-  }, [paused, reduceMotion, stream]);
-
-  if (reduceMotion) {
-    return (
-      <div className="flex h-8 w-full max-w-xs items-center justify-center gap-1" aria-hidden>
-        {[0.35, 0.7, 0.5, 0.4].map((level, index) => (
-          <span
-            className="w-0.5 rounded-full bg-foreground"
-            key={index}
-            style={{ height: `${Math.round(level * 100)}%` }}
-          />
-        ))}
-      </div>
-    );
-  }
-
+function VoicePanel({ phase, stream }: { readonly phase: VoicePhase; readonly stream?: MediaStream }) {
   return (
-    <div className="flex h-8 w-full max-w-xs items-center justify-center gap-0.5" aria-hidden>
-      {levels.map((level, index) => (
-        <span
-          className="w-0.5 rounded-full bg-foreground"
-          key={index}
-          style={{ height: `${Math.round(level * 100)}%` }}
-        />
-      ))}
+    <div className="flex min-h-16 flex-col items-center justify-center gap-1 px-5 pt-3 pb-1">
+      <VoiceWaveform
+        analyser={phase === "speaking" ? getSpeechAnalyser() : undefined}
+        pulse={phase === "thinking" || phase === "transcribing" || phase === "speaking"}
+        stream={phase === "listening" ? stream : undefined}
+      />
+      <p aria-live="polite" className="text-muted-foreground text-sm">
+        {voicePhaseLabel[phase]}
+      </p>
     </div>
   );
 }
@@ -173,10 +131,11 @@ export function HomePrompt({
   readonly status?: ChatStatus;
   readonly submitting: boolean;
 }) {
-  const [voice, setVoice] = useState<VoiceState>("idle");
-  const [voiceError, setVoiceError] = useState<string>();
-  const voiceMode = useVoiceMode();
-  const [stream, setStream] = useState<MediaStream>();
+  const recording = useVoiceRecording();
+  const { stream, voice } = recording;
+  const voiceSession = useVoiceSession();
+  const voiceMode = voiceSession.on;
+  const voiceError = recording.error;
   const desktopAutofocus = useSyncExternalStore(
     (onChange) => {
       const media = window.matchMedia("(pointer: fine)");
@@ -186,143 +145,122 @@ export function HomePrompt({
     () => window.matchMedia("(pointer: fine)").matches,
     () => false,
   );
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const abortRef = useRef<AbortController | null>(null);
-  const cancelledRef = useRef(false);
-  const streamRef = useRef<MediaStream | undefined>(undefined);
-  // eslint-disable-next-line react-hooks/refs -- keep the latest media stream for cleanup
-  streamRef.current = stream;
-
-  const stopStream = (media?: MediaStream) => {
-    for (const track of (media ?? streamRef.current)?.getTracks() ?? []) {
-      track.stop();
-    }
-    streamRef.current = undefined;
-    setStream(undefined);
-  };
-
+  const promptRef = useRef(prompt);
+  const submittingRef = useRef(submitting);
+  const startRecordingRef = useRef(recording.start);
+  const cancelRecordingRef = useRef(recording.cancel);
   useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-      if (recorderRef.current?.state === "recording") {
-        recorderRef.current.stop();
-      }
-      for (const track of streamRef.current?.getTracks() ?? []) {
-        track.stop();
-      }
-    };
+    promptRef.current = prompt;
+    submittingRef.current = submitting;
+    startRecordingRef.current = recording.start;
+    cancelRecordingRef.current = recording.cancel;
+  });
+  const turnActive = Boolean(busy || submitting);
+
+  const startListening = useCallback(async () => {
+    // Talking over a spoken reply interrupts it. Priming here (inside the tap)
+    // lets later replies play and the mic be analysed, including on Safari.
+    stopSpeaking();
+    primeVoiceAudio();
+    return startRecordingRef.current();
   }, []);
 
-  const startListening = async () => {
-    setVoiceError(undefined);
-    // Talking over a spoken reply interrupts it.
-    stopSpeaking();
-    try {
-      const media = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = pickRecorderMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(media, { mimeType })
-        : new MediaRecorder(media);
-      chunksRef.current = [];
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      });
-      recorder.start(250);
-      recorderRef.current = recorder;
-      setStream(media);
-      setVoice("listening");
-    } catch {
-      setVoiceError("Microphone access is required for voice input.");
-    }
-  };
-
-  const cancelVoice = () => {
-    cancelledRef.current = true;
-    abortRef.current?.abort();
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
-    chunksRef.current = [];
-    recorderRef.current = null;
-    stopStream();
-    setVoice("idle");
-  };
-
   const finishVoice = async () => {
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    cancelledRef.current = false;
+    const text = await recording.finish();
+    if (!text) {
+      // Nothing usable: in voice mode, wait for a tap instead of looping.
+      if (getVoiceSession().on) setVoiceLoop("idle");
+      return;
+    }
+    const current = promptRef.current.trim();
+    const combined = current ? `${current} ${text}` : text;
+    if (getVoiceSession().on && !submittingRef.current) {
+      // Hands-free: send the transcript straight away; the reply is spoken
+      // and the composer listens again once it finishes.
+      setPrompt("");
+      setVoiceLoop("sent");
+      onSubmit({ files: [], text: combined });
+    } else {
+      setPrompt(combined);
+    }
+  };
 
-    setVoice("transcribing");
-    const blob = await new Promise<Blob>((resolve) => {
-      recorder.addEventListener(
-        "stop",
-        () => {
-          resolve(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
-        },
-        { once: true },
-      );
-      if (recorder.state === "inactive") {
-        resolve(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+  // Hands-free: send when the speaker goes quiet, stop when nobody speaks.
+  useVoiceActivity({
+    enabled: voiceMode && voice === "listening",
+    stream,
+    onResult: (result) => {
+      if (result === "no-speech") {
+        recording.cancel();
+        setVoiceLoop("idle");
         return;
       }
-      recorder.stop();
-    });
+      void finishVoice();
+    },
+  });
 
-    recorderRef.current = null;
-    stopStream();
-    chunksRef.current = [];
-
-    if (cancelledRef.current) {
-      setVoice("idle");
-      return;
+  // Hands-free loop: once the sent turn has started, and both the turn and
+  // its spoken reply are done, listen again.
+  const { loop, speech } = voiceSession;
+  useEffect(() => {
+    if (!voiceMode) return;
+    if (loop === "sent") {
+      if (turnActive || speech !== "idle") {
+        setVoiceLoop("replying");
+        return;
+      }
+      // The send never started a turn (e.g. it was rejected): stop waiting.
+      const timer = window.setTimeout(() => {
+        if (getVoiceSession().loop === "sent") setVoiceLoop("idle");
+      }, 10_000);
+      return () => window.clearTimeout(timer);
     }
-    if (blob.size === 0) {
-      setVoice("idle");
-      setVoiceError("Couldn't capture that recording. Try again.");
-      return;
-    }
-    const mediaType = blob.type.split(";")[0] || "audio/webm";
-    const filename = mediaType.includes("mp4") ? "recording.m4a" : "recording.webm";
-    const form = new FormData();
-    form.append("audio", new File([blob], filename, { type: mediaType }));
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      const response = await fetch("/api/transcribe", {
-        body: form,
-        method: "POST",
-        signal: controller.signal,
+    if (loop !== "replying" || turnActive || speech !== "idle" || voice !== "idle") return;
+    // Short grace period: the reply's speech request starts just after the
+    // turn settles, and a quick answer can hand over to a full agent turn.
+    const timer = window.setTimeout(() => {
+      const session = getVoiceSession();
+      if (!session.on || session.loop !== "replying" || session.speech !== "idle") return;
+      // Clear the loop only once the mic is live, so the panel goes straight
+      // from "Thinking…" to "Listening…".
+      void startListening().then((ok) => {
+        // Voice mode was ended while the mic was opening: close it again.
+        if (ok && !getVoiceSession().on) cancelRecordingRef.current();
+        setVoiceLoop("idle");
       });
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        text?: string;
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || "Transcription failed.");
-      }
-      const text = payload.text?.trim();
-      if (text) {
-        const combined = prompt.trim() ? `${prompt.trim()} ${text}` : text;
-        if (voiceMode && !submitting) {
-          // Hands-free: send the transcript straight away; the reply is spoken.
-          setPrompt("");
-          onSubmit({ files: [], text: combined });
-        } else {
-          setPrompt(combined);
-        }
-      } else {
-        setVoiceError("No speech detected. Try again.");
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      setVoiceError("Couldn't transcribe that recording. Try again.");
-    } finally {
-      setVoice("idle");
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [loop, speech, startListening, turnActive, voice, voiceMode]);
+
+  const toggleVoiceMode = () => {
+    if (voiceMode) {
+      recording.cancel();
+      setVoiceMode(false);
+      return;
     }
+    setVoiceMode(true);
+    if (turnActive) {
+      // A turn is already running: speak its reply, then start listening.
+      primeVoiceAudio();
+      setVoiceLoop("replying");
+      return;
+    }
+    void startListening().then((ok) => {
+      if (!ok) setVoiceMode(false);
+      else if (!getVoiceSession().on) cancelRecordingRef.current();
+    });
   };
+
+  const voicePhase: VoicePhase =
+    voice === "listening"
+      ? "listening"
+      : voice === "transcribing"
+        ? "transcribing"
+        : speech === "playing"
+          ? "speaking"
+          : turnActive || speech === "loading" || loop !== "idle"
+            ? "thinking"
+            : "idle";
 
   const listening = voice !== "idle";
   const [fileDragDepth, setFileDragDepth] = useState(0);
@@ -373,9 +311,11 @@ export function HomePrompt({
       >
         <HomeAttachments />
         <PromptInputBody>
-          {listening ? (
+          {voiceMode ? (
+            <VoicePanel phase={voicePhase} stream={stream} />
+          ) : listening ? (
             <div className="flex min-h-10 flex-row items-center justify-center gap-2 px-5">
-              <ListeningWaveform paused={voice === "transcribing"} stream={stream} />
+              <VoiceWaveform pulse={voice === "transcribing"} stream={voice === "listening" ? stream : undefined} />
               <p className="text-muted-foreground text-sm" aria-live="polite">
                 {voice === "transcribing" ? "Transcribing…" : "Listening…"}
               </p>
@@ -394,8 +334,13 @@ export function HomePrompt({
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools>
-            {listening ? (
-              <PromptInputButton aria-label="Cancel recording" onClick={cancelVoice}>
+            {voiceMode ? (
+              <PromptInputButton aria-label="End voice mode" onClick={toggleVoiceMode}>
+                <XIcon />
+                <span>End voice</span>
+              </PromptInputButton>
+            ) : listening ? (
+              <PromptInputButton aria-label="Cancel recording" onClick={recording.cancel}>
                 <XIcon />
               </PromptInputButton>
             ) : (
@@ -413,7 +358,9 @@ export function HomePrompt({
           <div className="flex items-center gap-3">
             {listening ? (
               <PromptInputButton
-                aria-label={voice === "transcribing" ? "Transcribing" : "Finish recording"}
+                aria-label={
+                  voice === "transcribing" ? "Transcribing" : voiceMode ? "Send now" : "Finish recording"
+                }
                 className="rounded-full"
                 disabled={voice === "transcribing"}
                 variant="default"
@@ -421,18 +368,33 @@ export function HomePrompt({
               >
                 {voice === "transcribing" ? <Spinner /> : <CheckIcon />}
               </PromptInputButton>
+            ) : voiceMode && turnActive ? (
+              <HomeSubmit
+                busy={busy}
+                onCancel={onCancel}
+                prompt=""
+                status={status}
+                submitting={submitting}
+              />
+            ) : voiceMode ? (
+              <PromptInputButton
+                aria-label={voicePhase === "speaking" ? "Interrupt and talk" : "Start talking"}
+                className="rounded-full"
+                variant="default"
+                onClick={() => {
+                  setVoiceLoop("idle");
+                  void startListening();
+                }}
+              >
+                <MicIcon className="size-5" />
+              </PromptInputButton>
             ) : (
               <>
                 <PromptInputButton
-                  aria-label={voiceMode ? "Turn off voice mode" : "Turn on voice mode"}
-                  aria-pressed={voiceMode}
-                  className={cn(voiceMode && "bg-accent text-foreground")}
-                  tooltip={
-                    voiceMode
-                      ? "Voice mode is on: recordings send right away and replies are read aloud"
-                      : "Voice mode: talk and hear replies"
-                  }
-                  onClick={() => setVoiceMode(!voiceMode)}
+                  aria-label="Turn on voice mode"
+                  disabled={submitting}
+                  tooltip="Voice mode: talk hands-free and hear replies"
+                  onClick={toggleVoiceMode}
                 >
                   <AudioLinesIcon className="size-5" />
                 </PromptInputButton>

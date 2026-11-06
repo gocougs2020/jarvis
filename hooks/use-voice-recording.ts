@@ -22,12 +22,15 @@ export function useVoiceRecording() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const streamRef = useRef<MediaStream | undefined>(undefined);
+  const startingRef = useRef(false);
+  const [stream, setStream] = useState<MediaStream>();
 
   const stopStream = () => {
     for (const track of streamRef.current?.getTracks() ?? []) {
       track.stop();
     }
     streamRef.current = undefined;
+    setStream(undefined);
   };
 
   useEffect(() => {
@@ -40,7 +43,11 @@ export function useVoiceRecording() {
     };
   }, []);
 
-  const start = async () => {
+  /** Resolves `true` once the microphone is recording. */
+  const start = async (): Promise<boolean> => {
+    // One recorder at a time, even when two taps race the permission prompt.
+    if (recorderRef.current || startingRef.current) return Boolean(recorderRef.current);
+    startingRef.current = true;
     setError(undefined);
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -55,9 +62,14 @@ export function useVoiceRecording() {
       recorder.start(250);
       recorderRef.current = recorder;
       streamRef.current = media;
+      setStream(media);
       setVoice("listening");
+      return true;
     } catch {
       setError("Microphone access is required for voice input.");
+      return false;
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -76,6 +88,9 @@ export function useVoiceRecording() {
   const finish = async (): Promise<string | undefined> => {
     const recorder = recorderRef.current;
     if (!recorder) return undefined;
+    // Claim the recorder so a second finish (a tap racing silence detection)
+    // does not upload the same recording twice.
+    recorderRef.current = null;
     cancelledRef.current = false;
     setVoice("transcribing");
 
@@ -145,5 +160,5 @@ export function useVoiceRecording() {
     }
   };
 
-  return { cancel, error, finish, start, voice };
+  return { cancel, error, finish, start, stream, voice };
 }
