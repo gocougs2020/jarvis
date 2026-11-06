@@ -3,6 +3,7 @@ import type { EmailRecord } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   fetchReceivedEmailContent: vi.fn(),
+  receivedAuthenticationResults: vi.fn(),
   persistEmailEmbeddings: vi.fn(),
   classifyEmailAction: vi.fn(),
   findUserById: vi.fn(),
@@ -20,7 +21,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/email-content", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email-content")>();
-  return { ...actual, fetchReceivedEmailContent: mocks.fetchReceivedEmailContent };
+  return {
+    ...actual,
+    fetchReceivedEmailContent: mocks.fetchReceivedEmailContent,
+    receivedAuthenticationResults: mocks.receivedAuthenticationResults,
+  };
 });
 
 vi.mock("@/lib/email-embeddings", () => ({
@@ -120,8 +125,10 @@ beforeEach(() => {
     bodyHtml: "<p>Table for <strong>two</strong>.</p>",
     bodyText: "Table for two.",
     attachments: [],
-    headers: { "Authentication-Results": "mx.example; dmarc=pass header.from=example.com" },
   });
+  mocks.receivedAuthenticationResults.mockResolvedValue([
+    "mx.example; dmarc=pass header.from=example.com",
+  ]);
 });
 
 afterEach(() => {
@@ -238,10 +245,10 @@ describe("processInboundResendEmail", () => {
 
   it("does not start a session when the owner's address fails DMARC", async () => {
     mocks.classifyEmailAction.mockResolvedValue({ hasActionItem: true, summary: "x", prompt: "x" });
-    mocks.fetchReceivedEmailContent.mockResolvedValue({
-      ...(await mocks.fetchReceivedEmailContent()),
-      headers: { "Authentication-Results": "mx.example; dmarc=fail header.from=example.com" },
-    });
+    mocks.receivedAuthenticationResults.mockResolvedValue([
+      "mx.example; dmarc=fail header.from=example.com",
+      "forged; dmarc=pass header.from=example.com",
+    ]);
     await processInboundResendEmail(inbound);
     expect(mocks.createEmail).toHaveBeenCalled();
     expect(mocks.classifyEmailAction).not.toHaveBeenCalled();

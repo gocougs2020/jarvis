@@ -36,7 +36,7 @@ export async function listAppUsers(): Promise<AppUser[]> {
 }
 
 /** The workspace owner: the first account created. This app is one person's agent. */
-async function primaryAppUser(): Promise<AppUser | null> {
+export async function workspaceOwner(): Promise<AppUser | null> {
   if (hasNeon()) {
     const [row] = await getNeonDb()
       .select({ id: pgUser.id, email: pgUser.email, name: pgUser.name })
@@ -67,7 +67,7 @@ export async function inboundMailOwner(
     const sender = (await listAppUsers()).find((user) => normalizeEmailAddress(user.email) === from);
     if (sender) return { user: sender, fromAccount: true };
   }
-  const owner = await primaryAppUser();
+  const owner = await workspaceOwner();
   return owner ? { user: owner, fromAccount: false } : null;
 }
 

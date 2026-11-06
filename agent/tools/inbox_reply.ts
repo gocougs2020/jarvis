@@ -40,9 +40,8 @@ export default defineTool({
     (toolInput as { mode?: string } | undefined)?.mode === "draft" ? "not-applicable" : "user-approval",
   inputSchema,
   async execute(input, ctx) {
-    // Signed-in users only; the inbox is the deployment's one agent address.
-    requireUser(ctx);
-    const inbox = await requireAgentResendInbox();
+    const user = requireUser(ctx);
+    const inbox = await requireAgentResendInbox(user.userId);
     const idempotencyKey = `inbox-reply/${ctx.callId}`;
 
     const text = input.text?.trim();

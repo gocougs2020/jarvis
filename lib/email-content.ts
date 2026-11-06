@@ -1,4 +1,5 @@
 import PostalMime from "postal-mime";
+import { authenticationResultsInOrder } from "@/lib/email-auth";
 import { parseAddressList } from "@/lib/email-users";
 import { getResend } from "@/lib/resend";
 import type { EmailAttachmentMeta } from "@/lib/types";
@@ -22,8 +23,6 @@ export type ReceivedEmailContent = {
   bodyHtml: string;
   bodyText: string;
   attachments: EmailAttachmentMeta[];
-  /** Message headers, for the sender-authentication check. */
-  headers: Record<string, string> | null;
 };
 
 export function textToHtml(text: string): string {
@@ -98,13 +97,27 @@ export async function fetchReceivedEmailContent(resendEmailId: string): Promise<
     receivedFor: parseAddressList(data.received_for),
     bodyHtml,
     bodyText,
-    headers: data.headers ?? null,
     attachments: (data.attachments ?? []).map((attachment) => ({
       filename: attachment.filename || "attachment",
       contentType: attachment.content_type || "application/octet-stream",
       size: typeof attachment.size === "number" ? attachment.size : null,
     })),
   };
+}
+
+/**
+ * `Authentication-Results` values of a received email, topmost first, read
+ * from the raw message so duplicate headers keep their order (Resend's
+ * `headers` map collapses them). Null when Resend has no raw message.
+ */
+export async function receivedAuthenticationResults(resendEmailId: string): Promise<string[] | null> {
+  const { data } = await getResend().emails.receiving.get(resendEmailId);
+  const url = data?.raw?.download_url;
+  if (!url) return null;
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const parsed = await PostalMime.parse(await response.arrayBuffer());
+  return authenticationResultsInOrder(parsed.headers ?? []);
 }
 
 async function parseRawEmail(downloadUrl: string): Promise<{ html: string; text: string }> {

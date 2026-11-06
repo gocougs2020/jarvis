@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       modelTier: settings.modelTier,
       instructionOverlay: settings.instructionOverlay,
     },
-    inboundMail: await inboundMailPayload(),
+    inboundMail: await inboundMailPayload(session.user.id),
   });
 }
 
@@ -37,6 +37,6 @@ export async function PATCH(request: Request) {
       modelTier: settings.modelTier,
       instructionOverlay: settings.instructionOverlay,
     },
-    inboundMail: await inboundMailPayload(),
+    inboundMail: await inboundMailPayload(session.user.id),
   });
 }

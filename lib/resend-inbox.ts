@@ -2,7 +2,7 @@ import type { Inbox, InboxLabel, InboxMessage, InboxThread } from "resend";
 import { appConfig, type AppConfig } from "@/app.config";
 import { APP_NAME } from "@/lib/brand";
 import { htmlToText } from "@/lib/email-content";
-import { normalizeEmailAddress } from "@/lib/email-users";
+import { normalizeEmailAddress, workspaceOwner } from "@/lib/email-users";
 import { agentEmailAddress, getResend, resendConfigured } from "@/lib/resend";
 
 /**
@@ -128,8 +128,20 @@ export async function ensureAgentResendInbox(): Promise<AgentResendInbox> {
   return { address, id: created.id, unread: 0 };
 }
 
-/** The agent's inbox, or an error the agent can relay. */
-export async function requireAgentResendInbox(): Promise<AgentResendInbox> {
+/**
+ * The agent inbox holds the owner's mail, so only the workspace owner (the
+ * first account) may read or act on it, even when others can sign in.
+ */
+export async function isWorkspaceOwner(userId: string): Promise<boolean> {
+  const owner = await workspaceOwner();
+  return Boolean(owner) && owner?.id === userId;
+}
+
+/** The agent's inbox for the workspace owner, or an error the agent can relay. */
+export async function requireAgentResendInbox(userId: string): Promise<AgentResendInbox> {
+  if (!(await isWorkspaceOwner(userId))) {
+    throw new ResendInboxError("Only the workspace owner can use the agent's Resend inbox.");
+  }
   if (!resendInboxAvailable()) {
     throw new ResendInboxError(
       "Resend Inboxes are off for this deployment. Use list_emails and read_email for stored mail.",

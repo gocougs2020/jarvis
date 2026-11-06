@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/api";
 import { inboundMailPayload } from "@/lib/inbound-mail-payload";
-import { ensureAgentResendInbox, ResendInboxError, resendInboxAvailable } from "@/lib/resend-inbox";
+import {
+  ensureAgentResendInbox,
+  isWorkspaceOwner,
+  ResendInboxError,
+  resendInboxAvailable,
+} from "@/lib/resend-inbox";
 
 /** Create the Resend inbox on the agent address. Resend bills past its free inboxes, so this is explicit. */
 export async function POST(request: Request) {
@@ -9,6 +14,12 @@ export async function POST(request: Request) {
   if (error || !session) return error;
   if (!resendInboxAvailable()) {
     return NextResponse.json({ error: "Resend Inboxes are not available here." }, { status: 404 });
+  }
+  if (!(await isWorkspaceOwner(session.user.id))) {
+    return NextResponse.json(
+      { error: "Only the workspace owner can set up the agent inbox." },
+      { status: 403 },
+    );
   }
   try {
     await ensureAgentResendInbox();
@@ -20,5 +31,5 @@ export async function POST(request: Request) {
         : "Resend could not create the inbox.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
-  return NextResponse.json({ inboundMail: await inboundMailPayload() });
+  return NextResponse.json({ inboundMail: await inboundMailPayload(session.user.id) });
 }

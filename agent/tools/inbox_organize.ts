@@ -19,9 +19,8 @@ export default defineTool({
     removeLabels: z.array(z.string().min(1).max(64)).max(10).optional(),
   }),
   async execute(input, ctx) {
-    // Signed-in users only; the inbox is the deployment's one agent address.
-    requireUser(ctx);
-    const inbox = await requireAgentResendInbox();
+    const user = requireUser(ctx);
+    const inbox = await requireAgentResendInbox(user.userId);
     return organizeInboxThread({ inboxId: inbox.id, ...input });
   },
 });

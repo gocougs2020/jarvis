@@ -1,5 +1,5 @@
 import { agentEmailAddress } from "@/lib/resend";
-import { getAgentResendInbox, resendInboxAvailable } from "@/lib/resend-inbox";
+import { getAgentResendInbox, isWorkspaceOwner, resendInboxAvailable } from "@/lib/resend-inbox";
 
 export type ResendInboxInfo = {
   /** The agent address the inbox lives (or will live) on. */
@@ -13,15 +13,17 @@ export type InboundMailPayload = {
   /** The agent's address (`RESEND_FROM_EMAIL`), or null until it is set to a real domain. */
   address: string | null;
   configured: boolean;
-  /** Null when Resend Inboxes are off or unavailable on this deployment. */
+  /** Null when Resend Inboxes are off or unavailable, or the viewer is not the workspace owner. */
   resendInbox: ResendInboxInfo | null;
 };
 
-/** Settings view of the agent address and, when available, its Resend inbox. */
-export async function inboundMailPayload(): Promise<InboundMailPayload> {
+/** Settings view of the agent address and, for the workspace owner, its Resend inbox. */
+export async function inboundMailPayload(userId: string): Promise<InboundMailPayload> {
   const address = agentEmailAddress();
   const base = { address, configured: Boolean(address) };
-  if (!resendInboxAvailable()) return { ...base, resendInbox: null };
+  if (!resendInboxAvailable() || !(await isWorkspaceOwner(userId))) {
+    return { ...base, resendInbox: null };
+  }
   try {
     const inbox = await getAgentResendInbox();
     return {

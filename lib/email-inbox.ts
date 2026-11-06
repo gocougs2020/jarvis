@@ -6,6 +6,7 @@ import {
   emailHasCompleteBodies,
   fetchReceivedEmailContent,
   normalizeEmailBodies,
+  receivedAuthenticationResults,
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
 import {
@@ -15,7 +16,7 @@ import {
   parseAddressList,
 } from "@/lib/email-users";
 import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
-import { getResend, isAgentRecipient } from "@/lib/resend";
+import { isAgentRecipient } from "@/lib/resend";
 import { embedTexts } from "@/lib/embeddings";
 import {
   createChat,
@@ -265,15 +266,22 @@ export async function ensureStoredEmailContent(email: EmailRecord): Promise<Emai
  * agent address is not secret and From is easy to forge, so by default the
  * message must also pass DMARC for its From domain.
  */
-function mayStartUnattendedSession(
+async function mayStartUnattendedSession(
   fromAccount: boolean,
   fromAddress: string,
-  headers: Record<string, string> | null,
-): boolean {
+  resendEmailId: string,
+): Promise<boolean> {
   if (!fromAccount) return false;
   if (!appConfig.security.emailSessionsRequireDmarc) return true;
-  if (senderPassesDmarc(headers, fromAddress)) return true;
-  console.info("[email] no session: the owner's address did not pass DMARC", { fromAddress });
+  const results = await receivedAuthenticationResults(resendEmailId).catch((error: unknown) => {
+    console.error("[email] could not read sender authentication", error);
+    return null;
+  });
+  if (senderPassesDmarc(results, fromAddress)) return true;
+  console.info("[email] no session: the sender did not pass DMARC", {
+    fromAddress,
+    verdict: results === null ? "no raw message" : results[0] ? "fail" : "no Authentication-Results",
+  });
   return false;
 }
 
@@ -364,7 +372,7 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
     throw error;
   }
   await persistEmailEmbeddings(email);
-  if (mayStartUnattendedSession(owner.fromAccount, fromAddress, content.headers)) {
+  if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, resendEmailId)) {
     await startActionSessionIfRequested(email);
   }
   return (await getEmail(owner.user.id, email.id)) ?? email;
@@ -376,16 +384,6 @@ export type InboxEmailReceivedPayload = {
   emailId: string;
   direction?: "inbound" | "outbound";
 };
-
-/** Headers of a received email, for the DMARC check. Null when Resend has none for this id. */
-async function receivedEmailHeaders(emailId: string): Promise<Record<string, string> | null> {
-  try {
-    const { data } = await getResend().emails.receiving.get(emailId);
-    return data?.headers ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * `inbox.email.received` from the agent's Resend inbox. Stored like any
@@ -443,8 +441,7 @@ export async function processInboxEmailReceived(
   }
   await persistEmailEmbeddings(email);
 
-  const headers = owner.fromAccount ? await receivedEmailHeaders(payload.emailId) : null;
-  if (mayStartUnattendedSession(owner.fromAccount, fromAddress, headers)) {
+  if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, payload.emailId)) {
     await startActionSessionIfRequested(
       email,
       `This email is in the agent's Resend inbox (thread ${payload.threadId}, email ${payload.emailId}). To answer in that thread, use inbox_reply with this threadId instead of send_email.`,

@@ -3,32 +3,40 @@ import { normalizeEmailAddress } from "@/lib/email-users";
 /**
  * The agent address is not secret, and From is easy to forge, so an email
  * may only start an unattended session when the receiving server reports
- * that it passed DMARC for the From domain. Resend's receiving API returns
- * the message headers; `Authentication-Results` carries the verdict.
+ * that it passed DMARC for the From domain.
  *
- * Fails closed: no header, any failing DMARC verdict, or a verdict for
- * another domain means "not verified". A sender can add its own
- * Authentication-Results header, so one forged "pass" next to the real
- * "fail" still fails.
+ * Only the topmost `Authentication-Results` header counts: the receiving
+ * server prepends it, above anything the sender wrote, and a sender can add
+ * its own forged "dmarc=pass" lower down. Callers must pass the header
+ * values in message order from the raw message, never a name → value map,
+ * which can keep the forged copy.
+ *
+ * Fails closed: no header, a failing or missing DMARC verdict, or a verdict
+ * without `header.from` equal to the From domain means "not verified".
  */
 export function senderPassesDmarc(
-  headers: Readonly<Record<string, string | readonly string[]>> | null | undefined,
+  authenticationResults: readonly string[] | null | undefined,
   fromAddress: string,
 ): boolean {
   const from = normalizeEmailAddress(fromAddress);
-  const domain = from.slice(from.lastIndexOf("@") + 1);
-  if (!headers || !domain || !from.includes("@")) return false;
+  const at = from.lastIndexOf("@");
+  const domain = at > 0 ? from.slice(at + 1) : "";
+  const topmost = authenticationResults?.[0]?.toLowerCase();
+  if (!domain || !topmost) return false;
 
-  const values = Object.entries(headers)
-    .filter(([name]) => name.trim().toLowerCase() === "authentication-results")
-    .flatMap(([, value]) => (Array.isArray(value) ? value : [value]))
-    .join("\n")
-    .toLowerCase();
-  const verdicts = [...values.matchAll(/\bdmarc=([a-z]+)([^;\n]*)/g)];
+  const verdicts = [...topmost.matchAll(/\bdmarc=([a-z]+)([^;]*)/g)];
   if (verdicts.length === 0) return false;
   return verdicts.every(([, result, rest]) => {
-    if (result !== "pass") return false;
-    const headerFrom = rest?.match(/header\.from=([^\s;)]+)/)?.[1];
-    return !headerFrom || headerFrom.replace(/^@/, "") === domain;
+    const headerFrom = rest?.match(/header\.from=([^\s;)]+)/)?.[1]?.replace(/^@/, "");
+    return result === "pass" && headerFrom === domain;
   });
+}
+
+/** `Authentication-Results` values in message order (topmost first) from parsed raw headers. */
+export function authenticationResultsInOrder(
+  headers: readonly { readonly key: string; readonly value: string }[],
+): string[] {
+  return headers
+    .filter((header) => header.key.trim().toLowerCase() === "authentication-results")
+    .map((header) => header.value);
 }

@@ -15,9 +15,8 @@ export default defineTool({
     limit: z.number().int().min(1).max(50).optional(),
   }),
   async execute(input, ctx) {
-    // Signed-in users only; the inbox is the deployment's one agent address.
-    requireUser(ctx);
-    const inbox = await requireAgentResendInbox();
+    const user = requireUser(ctx);
+    const inbox = await requireAgentResendInbox(user.userId);
     const threads = await listInboxThreads(inbox.id, input);
     return { inbox: inbox.address, unread: inbox.unread, threads };
   },
