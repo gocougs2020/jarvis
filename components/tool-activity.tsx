@@ -181,11 +181,18 @@ export function EmailToolCard({
   approval,
   errorText,
   fields,
+  rawInput,
   status,
 }: {
   readonly approval?: ReactNode;
   readonly errorText?: string;
   readonly fields: EmailCardFields;
+  /**
+   * The exact tool input. The summary above it leaves out fields that change
+   * what is sent (an HTML body, attachment ids, thread or draft ids), so it is
+   * shown open beside an approval and one click away otherwise.
+   */
+  readonly rawInput?: ReactNode;
   readonly status: EmailCardStatus;
 }) {
   const [expanded, setExpanded] = useState(status === "awaiting-approval");
@@ -253,6 +260,20 @@ export function EmailToolCard({
           <PaperclipIcon aria-hidden="true" className="size-3.5" />
           {fields.attachmentCount === 1 ? "1 attachment" : `${fields.attachmentCount} attachments`}
         </p>
+      ) : null}
+      {fields.hasHtml ? (
+        <p className="px-3 pb-3 text-amber-800 text-xs dark:text-amber-200">
+          Also sends an HTML version, which most mail apps show instead of the text above. Check it
+          under {status === "awaiting-approval" ? "Exact request" : "Request details"}.
+        </p>
+      ) : null}
+      {rawInput ? (
+        <details className="group/raw border-t px-3 py-2" open={status === "awaiting-approval"}>
+          <summary className="cursor-pointer text-muted-foreground text-xs hover:text-foreground">
+            {status === "awaiting-approval" ? "Exact request" : "Request details"}
+          </summary>
+          <div className="pt-2">{rawInput}</div>
+        </details>
       ) : null}
       {errorText || (status === "not-sent" && fields.message) ? (
         <p className="border-t bg-destructive/5 px-3 py-2 text-destructive text-sm" role="alert">

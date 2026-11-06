@@ -263,6 +263,7 @@ function AgentMessagePart({
             }
             errorText={part.errorText}
             fields={emailCardFields(part)}
+            rawInput={<ToolInput input={part.input} />}
             status={emailCardStatus(part)}
           />
         );

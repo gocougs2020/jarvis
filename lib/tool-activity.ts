@@ -229,6 +229,8 @@ export type EmailCardFields = {
   readonly subject?: string;
   readonly body?: string;
   readonly attachmentCount: number;
+  /** A separate HTML body goes out too, and mail clients usually show that one. */
+  readonly hasHtml: boolean;
   readonly href?: string;
   readonly message?: string;
 };
@@ -259,6 +261,7 @@ export function emailCardFields(part: ToolLike & { readonly output?: unknown }):
     subject: stringField(output, "subject") ?? stringField(input, "subject"),
     body: stringField(input, "body", "text"),
     attachmentCount: documentIds,
+    hasHtml: typeof input.html === "string" && input.html.trim().length > 0,
     // Only an in-app path: the card links it, so never a scheme or another host.
     href:
       typeof output.href === "string" && /^\/(?!\/)/.test(output.href) ? output.href : undefined,

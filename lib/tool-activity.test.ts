@@ -95,6 +95,11 @@ describe("email cards", () => {
     });
   });
 
+  it("flags a separate HTML body", () => {
+    expect(emailCardFields(tool("send_email", { body: "a", html: "<p>b</p>" })).hasHtml).toBe(true);
+    expect(emailCardFields(tool("send_email", { body: "a" })).hasHtml).toBe(false);
+  });
+
   it("links only in-app paths", () => {
     const card = (href: string) =>
       emailCardFields({ ...tool("send_email"), output: { sent: true, href } }).href;
