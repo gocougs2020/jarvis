@@ -3,7 +3,7 @@ import { highReasoningProviderOptions, modelSelection } from "./models";
 
 describe("highReasoningProviderOptions", () => {
   it("uses each provider's own reasoning knob", () => {
-    expect(highReasoningProviderOptions("openai/gpt-5.6-luna")).toEqual({
+    expect(highReasoningProviderOptions("openai/gpt-6-luna")).toEqual({
       openai: { reasoningEffort: "high" },
     });
     expect(highReasoningProviderOptions("anthropic/claude-sonnet-5.5")).toMatchObject({
@@ -17,7 +17,7 @@ describe("highReasoningProviderOptions", () => {
   });
 
   it("never forces reasoning on the fast route", () => {
-    expect(modelSelection("openai/gpt-5.6-luna-fast", "fast")).not.toHaveProperty("modelOptions");
+    expect(modelSelection("openai/gpt-6-luna-fast", "fast")).not.toHaveProperty("modelOptions");
   });
 });
 

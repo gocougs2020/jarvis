@@ -24,10 +24,41 @@ export const LONG_CONTEXT_INPUT_TOKENS = 272_000;
 const PER_MILLION = 1_000_000;
 
 /**
- * Catalog keys are model ids without a provider prefix (`gpt-5.6-luna`).
+ * Catalog keys are model ids without a provider prefix (`gpt-6-luna`).
  * Luna Fast is OpenAI Fast mode pricing (2× standard Luna).
+ * GPT-5.6 entries stay so usage recorded before the GPT-6 switch still prices.
  */
 const TOKEN_RATES: Readonly<Record<string, ModelTokenRates>> = {
+  "gpt-6-luna": {
+    input: 0.1,
+    cacheRead: 0.01,
+    cacheWrite: 0.125,
+    output: 0.5,
+    longInput: 0.2,
+    longCacheRead: 0.02,
+    longCacheWrite: 0.25,
+    longOutput: 0.75,
+  },
+  "gpt-6-luna-fast": {
+    input: 0.2,
+    cacheRead: 0.02,
+    cacheWrite: 0.25,
+    output: 1,
+    longInput: 0.4,
+    longCacheRead: 0.04,
+    longCacheWrite: 0.5,
+    longOutput: 1.5,
+  },
+  "gpt-6.1-sol": {
+    input: 2,
+    cacheRead: 0.1,
+    cacheWrite: 2.5,
+    output: 10,
+    longInput: 4,
+    longCacheRead: 0.2,
+    longCacheWrite: 5,
+    longOutput: 15,
+  },
   "gpt-5.6-luna": {
     input: 0.2,
     cacheRead: 0.02,

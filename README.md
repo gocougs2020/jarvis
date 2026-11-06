@@ -263,13 +263,13 @@ Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a ses
 
 | Key | Used for | Default |
 | --- | --- | --- |
-| `chatFast` | Quick answers and first-prompt routing | `openai/gpt-5.6-luna-fast` |
-| `chatLow` | First prompts that need analysis or thinking | `openai/gpt-5.6-luna` |
-| `chatHigh` | First prompts that look unusually complex | `openai/gpt-5.6-sol` |
-| `instructions` | Generating instruction overlays and custom skills | `openai/gpt-5.6-luna` |
-| `sessionTitle` | Recents list titles and descriptions | `openai/gpt-5.6-luna` |
-| `sessionMemory` | Related-session recall | `openai/gpt-5.6-luna` |
-| `compaction` | Context-window checkpoints | `openai/gpt-5.6-luna` |
+| `chatFast` | Quick answers and first-prompt routing | `openai/gpt-6-luna-fast` |
+| `chatLow` | First prompts that need analysis or thinking | `openai/gpt-6-luna` |
+| `chatHigh` | First prompts that look unusually complex | `openai/gpt-6.1-sol` |
+| `instructions` | Generating instruction overlays and custom skills | `openai/gpt-6-luna` |
+| `sessionTitle` | Recents list titles and descriptions | `openai/gpt-6-luna` |
+| `sessionMemory` | Related-session recall | `openai/gpt-6-luna` |
+| `compaction` | Context-window checkpoints | `openai/gpt-6-luna` |
 | `embeddings` | Session, file, and inbox email embeddings | `openai/text-embedding-3-small` |
 | `imageGeneration` | `generate_image` | `openai/gpt-image-2` |
 | `transcription` | Voice input (AI Gateway, same credentials as chat) | `spacexai/grok-stt` |
