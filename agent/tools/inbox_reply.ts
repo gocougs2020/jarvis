@@ -15,7 +15,7 @@ const inputSchema = z.object({
   mode: z
     .enum(["draft", "send", "send_draft"])
     .describe(
-      "draft: save a reply draft in the thread for the user to review (no approval). send: send a reply now. send_draft: send an existing draft by draftId (for example one Resend's inbox agent wrote); pass its final text, which replaces the draft's body, so the approval shows exactly what is sent.",
+      "draft: save a reply draft in the thread for the user to review (no approval). send: send a reply now. send_draft: send the reply an existing draft holds, by draftId (for example one Resend's inbox agent wrote). Pass its final text: that text goes out as a normal reply to the message the draft answers (the draft's own recipients are ignored), then the draft is discarded.",
     ),
   text: z
     .string()
@@ -52,7 +52,9 @@ export default defineTool({
         html: input.html,
         idempotencyKey,
         inboxId: inbox.id,
+        replyAll: input.replyAll,
         text,
+        threadId: input.threadId,
       });
       return { sent: true, emailId: sentId, threadId: input.threadId };
     }

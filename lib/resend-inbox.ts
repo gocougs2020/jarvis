@@ -1,7 +1,7 @@
 import type { Inbox, InboxLabel, InboxMessage, InboxThread } from "resend";
 import { appConfig, type AppConfig } from "@/app.config";
 import { APP_NAME } from "@/lib/brand";
-import { htmlToText, textToHtml } from "@/lib/email-content";
+import { htmlToText } from "@/lib/email-content";
 import { normalizeEmailAddress } from "@/lib/email-users";
 import {
   formatInboundMailToken,
@@ -397,33 +397,40 @@ export async function draftInboxReply(input: {
 }
 
 /**
- * Send a draft with the text the user approved. The draft is rewritten to
- * that text first, so what goes out is exactly what the approval showed,
- * not whatever the draft held (Resend's inbox agent writes drafts from
- * untrusted mail).
+ * Send a draft's reply with the text the user approved. The draft object is
+ * not sent: its recipients and body came from Resend's inbox agent reading
+ * untrusted mail, and the approval showed neither. Instead this replies to
+ * the message the draft answers, so recipients come from the thread exactly
+ * as in a normal reply, then discards the draft.
  */
 export async function sendInboxDraft(input: {
   inboxId: string;
+  threadId: string;
   draftId: string;
   text: string;
   html?: string;
+  replyAll?: boolean;
   idempotencyKey: string;
 }): Promise<string> {
-  unwrap(
-    await getResend().inboxes.drafts.update({
-      draftId: input.draftId,
-      html: input.html?.trim() || textToHtml(input.text),
-      inboxId: input.inboxId,
-      text: input.text,
-    }),
-  );
-  const sent = unwrap(
-    await getResend().inboxes.drafts.send(
-      { draftId: input.draftId, inboxId: input.inboxId },
-      { idempotencyKey: input.idempotencyKey.slice(0, 256) },
-    ),
-  );
-  return sent.id;
+  const resend = getResend();
+  const draft = unwrap(await resend.inboxes.drafts.get({ draftId: input.draftId, inboxId: input.inboxId }));
+  if (draft.thread_id !== input.threadId || !draft.reply_to_email_id) {
+    throw new ResendInboxError("That draft is not a reply in this thread.");
+  }
+  const sentId = await replyInInboxThread({
+    emailId: draft.reply_to_email_id,
+    html: input.html,
+    idempotencyKey: input.idempotencyKey,
+    inboxId: input.inboxId,
+    replyAll: input.replyAll,
+    text: input.text,
+    threadId: input.threadId,
+  });
+  await resend.inboxes.drafts
+    .remove({ draftId: input.draftId, inboxId: input.inboxId })
+    .then(unwrap)
+    .catch((error: unknown) => console.error("[resend-inbox] draft cleanup failed", error));
+  return sentId;
 }
 
 /** Move, mark read, and add or remove labels by name. Missing labels are created. */
