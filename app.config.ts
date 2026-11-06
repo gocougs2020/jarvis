@@ -18,6 +18,16 @@ export type AppSkillConfig = {
   emoji: string;
 };
 
+/** AI SDK reasoning levels. Which ones a model honors depends on the provider. */
+export type ReasoningEffort =
+  | "provider-default"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export type AppConfig = {
   brand: {
     name: string;
@@ -28,7 +38,7 @@ export type AppConfig = {
     followUpPlaceholder: string;
   };
   models: {
-    /** Fast chat model for simple first prompts, and for first-prompt routing. */
+    /** Chat model for simple first prompts; also first-prompt routing, email triage, and web search. */
     chatFast: string;
     /** Chat model when the first prompt needs analysis or thinking. */
     chatLow: string;
@@ -37,7 +47,7 @@ export type AppConfig = {
     instructions: string;
     sessionTitle: string;
     sessionMemory: string;
-    /** Model used only for compaction checkpoints. */
+    /** Model used only for compaction checkpoints (provider-default reasoning; eve has no setting for it here). */
     compaction: string;
     embeddings: string;
     imageGeneration: string;
@@ -46,6 +56,26 @@ export type AppConfig = {
     /** AI Gateway speech (text-to-speech) model for spoken replies in voice mode. */
     speech: string;
     contextWindows: Readonly<Record<string, number>>;
+    /** Reasoning effort per feature. Chat routes are locked per session with their model. */
+    reasoning: {
+      /** `fast` chat route. */
+      chatFast: ReasoningEffort;
+      /** `reason` chat route. */
+      chatLow: ReasoningEffort;
+      /** `complex` chat route. */
+      chatHigh: ReasoningEffort;
+      /** First-prompt route classification (runs on `chatFast`). */
+      routing: ReasoningEffort;
+      /** Inbound email action-item classification (runs on `chatFast`). */
+      emailClassification: ReasoningEffort;
+      /** `web_search` query call (runs on `chatFast`). */
+      webSearch: ReasoningEffort;
+      sessionTitle: ReasoningEffort;
+      /** HyDE draft for related-session recall. Keep `memory.hydeTimeoutMs` long enough for it. */
+      sessionMemory: ReasoningEffort;
+      /** Instruction overlays, custom skills, and schedules. */
+      instructions: ReasoningEffort;
+    };
   };
   memory: {
     relatedSessionLimit: number;
@@ -102,28 +132,38 @@ export const appConfig = {
   },
 
   models: {
-    chatFast: "openai/gpt-5.6-luna-fast",
-    chatLow: "openai/gpt-5.6-luna",
-    chatHigh: "openai/gpt-5.6-sol",
-    instructions: "openai/gpt-5.6-luna",
-    sessionTitle: "openai/gpt-5.6-luna",
-    sessionMemory: "openai/gpt-5.6-luna",
-    compaction: "openai/gpt-5.6-luna",
+    chatFast: "openai/gpt-6-luna",
+    chatLow: "openai/gpt-6-luna",
+    chatHigh: "openai/gpt-6.1-sol",
+    instructions: "openai/gpt-6-luna",
+    sessionTitle: "openai/gpt-6-luna",
+    sessionMemory: "openai/gpt-6-luna",
+    compaction: "openai/gpt-6-luna",
     embeddings: "openai/text-embedding-3-small",
     imageGeneration: "openai/gpt-image-2",
     transcription: "spacexai/grok-stt",
     speech: "spacexai/grok-tts",
     contextWindows: {
-      "openai/gpt-5.6-luna-fast": 1_050_000,
-      "openai/gpt-5.6-luna": 1_050_000,
-      "openai/gpt-5.6-sol": 1_050_000,
+      "openai/gpt-6-luna": 1_050_000,
+      "openai/gpt-6.1-sol": 1_050_000,
+    },
+    reasoning: {
+      chatFast: "medium",
+      chatLow: "high",
+      chatHigh: "medium",
+      routing: "low",
+      emailClassification: "medium",
+      webSearch: "medium",
+      sessionTitle: "low",
+      sessionMemory: "low",
+      instructions: "high",
     },
   },
 
   memory: {
     relatedSessionLimit: 8,
     relatedSessionMinScore: 0.55,
-    hydeTimeoutMs: 1000,
+    hydeTimeoutMs: 6000,
     reminderContextMinScore: 0.74,
     reminderContextBodyMinScore: 0.78,
     reminderContextSnippetChars: 200,

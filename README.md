@@ -259,23 +259,39 @@ Users can still create their own skills in Settings; those are per-account and a
 
 ### Models
 
-Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a session, `chatFast` classifies whether thinking is needed and picks one chat model for the whole session (so later turns can reuse the prompt cache). Simple prompts stay on `chatFast` with no forced reasoning. Analysis, live/real-world data, or prompts that would benefit from thinking use `chatLow` with high reasoning. Unusually complex prompts use `chatHigh` with high reasoning.
+Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a session, `chatFast` classifies how much thinking is needed and picks one chat route for the whole session (so later turns can reuse the prompt cache): `fast` uses `chatFast`, `reason` uses `chatLow`, and `complex` uses `chatHigh`, each at its effort in `models.reasoning`.
 
 | Key | Used for | Default |
 | --- | --- | --- |
-| `chatFast` | Quick answers and first-prompt routing | `openai/gpt-5.6-luna-fast` |
-| `chatLow` | First prompts that need analysis or thinking | `openai/gpt-5.6-luna` |
-| `chatHigh` | First prompts that look unusually complex | `openai/gpt-5.6-sol` |
-| `instructions` | Generating instruction overlays and custom skills | `openai/gpt-5.6-luna` |
-| `sessionTitle` | Recents list titles and descriptions | `openai/gpt-5.6-luna` |
-| `sessionMemory` | Related-session recall | `openai/gpt-5.6-luna` |
-| `compaction` | Context-window checkpoints | `openai/gpt-5.6-luna` |
+| `chatFast` | Quick answers, first-prompt routing, inbound email triage, and `web_search` | `openai/gpt-6-luna` |
+| `chatLow` | First prompts that need analysis or thinking | `openai/gpt-6-luna` |
+| `chatHigh` | First prompts that look unusually complex | `openai/gpt-6.1-sol` |
+| `instructions` | Generating instruction overlays and custom skills | `openai/gpt-6-luna` |
+| `sessionTitle` | Recents list titles and descriptions | `openai/gpt-6-luna` |
+| `sessionMemory` | Related-session recall | `openai/gpt-6-luna` |
+| `compaction` | Context-window checkpoints | `openai/gpt-6-luna` |
 | `embeddings` | Session, file, and inbox email embeddings | `openai/text-embedding-3-small` |
 | `imageGeneration` | `generate_image` | `openai/gpt-image-2` |
 | `transcription` | Voice input (AI Gateway, same credentials as chat) | `spacexai/grok-stt` |
 | `speech` | Spoken replies in voice mode (AI Gateway text-to-speech) | `spacexai/grok-tts` |
 
-Any AI Gateway model ID works, including other providers (`anthropic/…`, `google/…`). The `reason` and `complex` routes turn on each provider's own deeper-reasoning option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults.
+Any AI Gateway model ID works, including other providers (`anthropic/…`, `google/…`).
+
+`models.reasoning` sets the reasoning effort per feature (`provider-default`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`):
+
+| Key | Feature | Default |
+| --- | --- | --- |
+| `chatFast` | `fast` chat route | `medium` |
+| `chatLow` | `reason` chat route | `high` |
+| `chatHigh` | `complex` chat route | `medium` |
+| `routing` | First-prompt route classification | `low` |
+| `emailClassification` | Inbound email action items | `medium` |
+| `webSearch` | `web_search` query call | `medium` |
+| `sessionTitle` | Recents list titles and descriptions | `low` |
+| `sessionMemory` | HyDE draft for related-session recall | `low` |
+| `instructions` | Instruction overlays, custom skills, and schedules | `high` |
+
+Compaction has no entry: eve has no compaction reasoning setting when the chat model is chosen dynamically, so checkpoints run at the provider's default effort. Chat routes pass the effort through each provider's own option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults. Calls that reason get extra `maxOutputTokens` headroom (`lib/reasoning.ts`) so thinking does not crowd out the answer. Routing and HyDE block the first token of a turn, so more effort there means a slower start.
 
 If you change a chat model ID, add its context window under `models.contextWindows` (tokens). Unknown IDs fall back to `1_050_000`. Compaction and the session context chip use `min(256_000, 90% of that catalog size)` so a million-token model does not fill its full window.
 
@@ -306,14 +322,14 @@ setup: {
 memory: {
   relatedSessionLimit: 8,
   relatedSessionMinScore: 0.55,
-  hydeTimeoutMs: 1000,
+  hydeTimeoutMs: 6000,
   reminderContextMinScore: 0.74,
   reminderContextBodyMinScore: 0.78,
   reminderContextSnippetChars: 200,
 },
 ```
 
-Prompts shorter than three words (greetings, "thanks") skip recall entirely, and the chat lookup runs alongside the embedding calls rather than before them. HyDE (a hypothetical reply used only for retrieval) is aborted after `hydeTimeoutMs`. Recall then searches with whatever query embeddings are ready — usually just the prompt — and continues the turn with no related sessions if nothing ranks above `relatedSessionMinScore`.
+Prompts shorter than three words (greetings, "thanks") skip recall entirely, and the chat lookup runs alongside the embedding calls rather than before them. HyDE (a hypothetical reply used only for retrieval, at `models.reasoning.sessionMemory`) is aborted after `hydeTimeoutMs`. Keep that long enough for the chosen effort, or HyDE will almost always time out; with reasoning `none`, about `1000` is enough. Recall then searches with whatever query embeddings are ready — usually just the prompt — and continues the turn with no related sessions if nothing ranks above `relatedSessionMinScore`.
 
 Nudge reminder emails do **not** use that related-session path. At fire time the app embeds the reminder brief only (no HyDE) and searches session titles/descriptions/prompts plus file titles/content. A hit must clear `reminderContextMinScore`. A body-only hit (prompt text or file content, no title match) must also clear `reminderContextBodyMinScore`. At most one session and one file are attached, each as a title, a short snippet (`reminderContextSnippetChars`), and a link. A thin brief (“remind me tomorrow”) skips retrieval. Nothing matched is the success case when the note is not clearly about this reminder.
 

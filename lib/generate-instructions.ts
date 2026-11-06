@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import { outputTokenBudget } from "@/lib/reasoning";
 import { z } from "zod";
 import { appConfig } from "@/app.config";
 import { recordGenerateTextUsage } from "@/lib/record-usage";
@@ -15,6 +16,8 @@ import {
 } from "@/lib/skill-document";
 
 const instructionModel = appConfig.models.instructions;
+const instructionReasoning = appConfig.models.reasoning.instructions;
+const instructionMaxOutputTokens = outputTokenBudget(instructionReasoning, 2500);
 
 export type InstructionKind = "overlay" | "skill";
 
@@ -164,7 +167,7 @@ export async function generateInstructionMarkdown({
     const identity = lockedSkillIdentity(skillName, skillSlug);
     if (identity) {
       const result = await generateText({
-        maxOutputTokens: 2500,
+        maxOutputTokens: instructionMaxOutputTokens,
         model: instructionModel,
         output: Output.object({
           description: "Revised Agent Skill description and procedure body. Do not include name or slug.",
@@ -172,7 +175,7 @@ export async function generateInstructionMarkdown({
           schema: skillContentSchema,
         }),
         prompt: request,
-        reasoning: "none",
+        reasoning: instructionReasoning,
         system: skillUpdateSystemPrompt(),
       });
       void recordGenerateTextUsage("instructions", instructionModel, result);
@@ -193,7 +196,7 @@ export async function generateInstructionMarkdown({
     }
 
     const result = await generateText({
-      maxOutputTokens: 2500,
+      maxOutputTokens: instructionMaxOutputTokens,
       model: instructionModel,
       output: Output.object({
         description: "An Agent Skills SKILL.md: name, routing description, and procedure body.",
@@ -201,7 +204,7 @@ export async function generateInstructionMarkdown({
         schema: skillCreateOutputSchema,
       }),
       prompt: request,
-      reasoning: "none",
+      reasoning: instructionReasoning,
       system: skillCreateSystemPrompt(),
     });
     void recordGenerateTextUsage("instructions", instructionModel, result);
@@ -225,10 +228,10 @@ export async function generateInstructionMarkdown({
   }
 
   const result = await generateText({
-    maxOutputTokens: 2500,
+    maxOutputTokens: instructionMaxOutputTokens,
     model: instructionModel,
     prompt: request,
-    reasoning: "none",
+    reasoning: instructionReasoning,
     system: overlaySystemPrompt(),
   });
   void recordGenerateTextUsage("instructions", instructionModel, result);

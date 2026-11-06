@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import { outputTokenBudget } from "@/lib/reasoning";
 import { z } from "zod";
 import { appConfig } from "@/app.config";
 import { emailBodyForEmbedding } from "@/lib/email-content";
@@ -7,6 +8,7 @@ import { runWithUsageScope } from "@/lib/usage-scope";
 import type { EmailRecord } from "@/lib/types";
 
 const classifyModel = appConfig.models.chatFast;
+const classifyReasoning = appConfig.models.reasoning.emailClassification;
 
 const classifySchema = z.object({
   hasActionItem: z
@@ -44,13 +46,13 @@ export async function classifyEmailAction(email: EmailRecord): Promise<EmailActi
   try {
     const result = await runWithUsageScope({ userId: email.userId, chatId: email.chatId }, () =>
       generateText({
-        maxOutputTokens: 220,
+        maxOutputTokens: outputTokenBudget(classifyReasoning, 220),
         model: classifyModel,
         output: Output.object({ schema: classifySchema }),
         prompt: [`Subject: ${subject || "(none)"}`, "", body || "(empty body)"].join("\n"),
-        reasoning: "none",
+        reasoning: classifyReasoning,
         system: CLASSIFY_SYSTEM,
-        timeout: 12_000,
+        timeout: 30_000,
       }),
     );
     void recordGenerateTextUsage("email", classifyModel, result, { userId: email.userId });

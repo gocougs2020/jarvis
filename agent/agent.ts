@@ -25,6 +25,10 @@ function attributionFrom(ctx: {
 export default defineAgent({
   compaction: {
     // Window is already min(256k, 90% of model capacity); compact when that cap is reached.
+    // Keep this a model id string: eve reloads a model object from this file's
+    // top-level `model`, which is dynamic here, so compaction would fail. eve
+    // has no compaction reasoning setting for a dynamic agent, so summaries run
+    // at the provider's default effort.
     model: COMPACTION_MODEL,
     thresholdPercent: 1,
   },

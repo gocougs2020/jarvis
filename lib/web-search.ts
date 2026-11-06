@@ -107,7 +107,7 @@ export async function searchWeb(input: WebSearchInput) {
     abortSignal: input.abortSignal,
     model: appConfig.models.chatFast,
     prompt: query,
-    reasoning: "none",
+    reasoning: appConfig.models.reasoning.webSearch,
     repairToolCall: async ({ toolCall }) => {
       const repaired = sanitizeSearchArgs(toolCallInput(toolCall.input), query);
       return {

@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import { outputTokenBudget } from "@/lib/reasoning";
 import { z } from "zod";
 import { appConfig } from "@/app.config";
 import {
@@ -11,6 +12,7 @@ import { recordGenerateTextUsage } from "@/lib/record-usage";
 import { SCHEDULE_BRIEF_MAX, parseSchedulePrompt } from "@/lib/schedule-prompt";
 
 const scheduleModel = appConfig.models.instructions;
+const scheduleReasoning = appConfig.models.reasoning.instructions;
 
 const generatedScheduleSchema = z.object({
   brief: z
@@ -62,7 +64,7 @@ export async function generateScheduleUpdate({
   const parsed = parseSchedulePrompt(currentPrompt);
   const zone = timezone?.trim() || currentCadence.timezone || defaultTimeZone();
   const result = await generateText({
-    maxOutputTokens: 1200,
+    maxOutputTokens: outputTokenBudget(scheduleReasoning, 1200),
     model: scheduleModel,
     output: Output.object({
       description: "Updated schedule brief and cadence.",
@@ -78,7 +80,7 @@ export async function generateScheduleUpdate({
     ]
       .filter(Boolean)
       .join("\n\n"),
-    reasoning: "none",
+    reasoning: scheduleReasoning,
     system: scheduleSystemPrompt(allowsSubDaily),
   });
   void recordGenerateTextUsage("instructions", scheduleModel, result);

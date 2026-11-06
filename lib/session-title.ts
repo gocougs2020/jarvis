@@ -1,10 +1,12 @@
 import { generateText, Output } from "ai";
+import { outputTokenBudget } from "@/lib/reasoning";
 import { z } from "zod";
 import { appConfig } from "@/app.config";
 import { recordGenerateTextUsage } from "@/lib/record-usage";
 import { titleFromPrompt } from "@/lib/store-logic";
 
 const titleModel = appConfig.models.sessionTitle;
+const titleReasoning = appConfig.models.reasoning.sessionTitle;
 const sessionSummarySchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -73,7 +75,7 @@ export async function generateSessionSummary({
 
   try {
     const result = await generateText({
-      maxOutputTokens: 220,
+      maxOutputTokens: outputTokenBudget(titleReasoning, 220),
       model: titleModel,
       output: Output.object({ schema: sessionSummarySchema }),
       prompt: [
@@ -88,7 +90,7 @@ export async function generateSessionSummary({
           : "User messages (first is how the session started; later items may include a recent tangent):",
         ...uniqueTurns.map((turn, index) => `${index + 1}. ${turn.slice(0, 280)}`),
       ].join("\n"),
-      reasoning: "medium",
+      reasoning: titleReasoning,
       system:
         "Update the recents-list title and description for an ongoing session. When an established title or description is provided, treat them as the session identity and summarize from those plus the new messages — never from the latest turn alone. Prefer how the session started. You may polish a truncated or awkward title, or refine the wording when new messages continue the same work. Do not retitle around a later side question, follow-up, or unrelated ask; keep the existing title in that case and only extend the description if the new content is part of the same work. Title: 6 to 14 words, no quotes, no prefix, no trailing punctuation, never cut off mid-phrase. Description: 1 to 3 sentences about the session as a whole.",
     });

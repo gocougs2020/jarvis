@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { outputTokenBudget } from "@/lib/reasoning";
 import { appConfig } from "@/app.config";
 import { embedTexts } from "@/lib/embeddings";
 import { recordGenerateTextUsage } from "@/lib/record-usage";
@@ -321,10 +322,10 @@ export async function persistRelatedSessionCitations({
 async function generateHypotheticalResponse(prompt: string): Promise<string> {
   try {
     const result = await generateText({
-      maxOutputTokens: 400,
+      maxOutputTokens: outputTokenBudget(appConfig.models.reasoning.sessionMemory, 400),
       model: SESSION_MEMORY_MODEL,
       prompt,
-      reasoning: "none",
+      reasoning: appConfig.models.reasoning.sessionMemory,
       system:
         "You are a general-purpose workspace assistant. Write a brief hypothetical reply to the user's request as if you already knew their working style and recent work. Two or three short paragraphs. Do not invent client names, prices, government ID numbers, or secrets. This draft is only used to retrieve similar past work.",
       timeout: hydeTimeoutMs,
