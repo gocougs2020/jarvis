@@ -8,6 +8,12 @@ The matching git tag is the baseline to sync against. Bump `package.json` when y
 
 ## Unreleased
 
+Email replies continue their chat
+- Replying to mail the agent sent from a session (for example a research brief from `send_email`) now continues that chat as a new turn instead of opening an unrelated session. Matching uses `In-Reply-To` / `References` against the sent email's stored Message-ID, then a `Re:` subject sent to your address in the last 14 days. The same DMARC and own-address rule gates it. If the original session cannot continue, a new session starts with the agent's email and a link back.
+- New nullable `emails.message_id` column (added automatically on the next cold start). Optionally add `email.sent` to the Resend webhook so Message-IDs are stored as soon as Resend has them.
+- `send_email`'s `replyToEmailId` now sends a real `In-Reply-To` / `References` Message-ID (looked up from the stored email) instead of the raw id, so agent replies thread in your mail client.
+- A chat page checks its session's stream past the saved cursor on load and when the tab comes back into view, and replays turns that were sent from the server, so the reply turn shows in the web chat.
+
 Email: one agent address
 - The agent has one address, `RESEND_FROM_EMAIL` (for example `agent@yourdomain.com`). It sends from it and receives at it. Per-user plus-addresses (`agent+token@…`), address rotation, and `RESEND_INBOUND_ADDRESSES` / `RESEND_INBOUND_DOMAINS` are gone. **Remove those two variables**, and point anything that mailed an old plus-address at the agent address.
 - Inbound mail is filed for the account whose email sent it, or for the workspace owner (the first account).

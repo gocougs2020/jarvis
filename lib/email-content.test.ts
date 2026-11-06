@@ -13,6 +13,7 @@ import {
   htmlToText,
   normalizeEmailBodies,
   ReceivedEmailContentError,
+  receivedThreadHeaders,
   textToHtml,
 } from "@/lib/email-content";
 
@@ -192,5 +193,77 @@ describe("fetchReceivedEmailContent", () => {
       name: "ReceivedEmailContentError",
       retryable: true,
     } satisfies Partial<ReceivedEmailContentError>);
+  });
+});
+
+describe("thread headers", () => {
+  afterEach(() => {
+    receivingGet.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads Message-ID, In-Reply-To, and References from Resend's header map", async () => {
+    receivingGet.mockResolvedValue({
+      data: {
+        subject: "Re: Brief",
+        from: "ada@example.com",
+        to: ["agent@example.com"],
+        html: "<p>More please.</p>",
+        text: "More please.",
+        message_id: "<Reply-1@mail.example.com>",
+        headers: {
+          "In-Reply-To": "<brief-1@send.example.com>",
+          references: "<root@send.example.com>\r\n <brief-1@send.example.com>",
+        },
+        attachments: [],
+      },
+      error: null,
+    });
+
+    const content = await fetchReceivedEmailContent("email_123");
+    expect(content.messageId).toBe("reply-1@mail.example.com");
+    expect(content.inReplyTo).toEqual(["brief-1@send.example.com"]);
+    expect(content.references).toEqual(["root@send.example.com", "brief-1@send.example.com"]);
+  });
+
+  it("falls back to the raw message when the header map has no thread headers", async () => {
+    receivingGet.mockResolvedValue({
+      data: {
+        message_id: "reply-1@mail.example.com",
+        headers: {},
+        raw: { download_url: "https://example.com/raw.eml", expires_at: "2099-01-01T00:00:00Z" },
+      },
+      error: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () =>
+          new TextEncoder().encode(
+            [
+              "From: ada@example.com",
+              "Subject: Re: Brief",
+              "Message-ID: <reply-1@mail.example.com>",
+              "In-Reply-To: <brief-1@send.example.com>",
+              "References: <root@send.example.com> <brief-1@send.example.com>",
+              "Content-Type: text/plain; charset=utf-8",
+              "",
+              "More please.",
+            ].join("\r\n"),
+          ).buffer,
+      })),
+    );
+
+    await expect(receivedThreadHeaders("email_123")).resolves.toEqual({
+      messageId: "reply-1@mail.example.com",
+      inReplyTo: ["brief-1@send.example.com"],
+      references: ["root@send.example.com", "brief-1@send.example.com"],
+    });
+  });
+
+  it("returns null when Resend has neither the email nor a raw message", async () => {
+    receivingGet.mockResolvedValue({ data: null, error: { message: "gone" } });
+    await expect(receivedThreadHeaders("email_123")).resolves.toBeNull();
   });
 });

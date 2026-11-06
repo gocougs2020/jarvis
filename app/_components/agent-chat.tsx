@@ -1,7 +1,13 @@
 "use client";
 
 import type { ChatStatus, FileUIPart, UserContent } from "ai";
-import { defaultMessageReducer, type ClientSessionState, type EveMessage, type MessageStreamEvent } from "eve/client";
+import {
+  Client,
+  defaultMessageReducer,
+  type ClientSessionState,
+  type EveMessage,
+  type MessageStreamEvent,
+} from "eve/client";
 import { useEveAgent } from "eve/react";
 import { AlertCircleIcon, ArrowLeftIcon, BrainIcon, FileTextIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
@@ -54,10 +60,12 @@ import {
 } from "@/lib/start-web-session";
 import {
   hasSettledSessionTail,
+  hasUnseenSessionEvents,
   latestTurnReplyText,
   hasTerminalSessionTail,
   isInactiveSessionError,
   sessionContextUsage,
+  shouldProbeForServerTurns,
   shouldResumeEveSession,
 } from "@/lib/session-events";
 import { documentsFromToolOutput } from "@/lib/client-documents";
@@ -111,6 +119,8 @@ type SessionComposer = {
   readonly cancel: () => void;
   readonly error?: string;
   readonly followUp: boolean;
+  /** No turn is sending, streaming, or resuming, so a server-side turn may be picked up. */
+  readonly idle: boolean;
   readonly submit: (message: PromptInputMessage) => void;
   readonly submitting: boolean;
   readonly status?: ChatStatus;
@@ -120,6 +130,7 @@ const idleComposer: SessionComposer = {
   busy: false,
   cancel: () => undefined,
   followUp: false,
+  idle: false,
   submit: () => undefined,
   submitting: false,
 };
@@ -135,9 +146,13 @@ export function AgentChat(props: AgentChatProps) {
   // Resume follows the chat on screen (switching chats in the sidebar does not
   // remount this component). Only a stuck resume turns it off, for that chat.
   const [resumeOffFor, setResumeOffFor] = useState<string>();
+  // Set when the session's stream has turns this page never saw (an emailed
+  // reply sent into the session from the server): replay it like a resume.
+  const [serverAheadFor, setServerAheadFor] = useState<string>();
   const chatKey = props.chat?.id ?? "draft";
   const resume =
-    resumeOffFor !== chatKey && shouldResumeEveSession(props.chat?.sessionId, props.initialEvents);
+    resumeOffFor !== chatKey &&
+    (serverAheadFor === chatKey || shouldResumeEveSession(props.chat?.sessionId, props.initialEvents));
   // Stored events are compacted and lack the ids of collapsed deltas. Resuming
   // replays the server stream from the start and dedupes by id, so hydrating
   // them would duplicate earlier replies: when resuming, start empty and let
@@ -174,6 +189,66 @@ export function AgentChat(props: AgentChatProps) {
     remountingRef.current = false;
   }, [storeGeneration]);
 
+  // Latest stream cursor this page consumed, per chat. The chat prop's cursor
+  // is from page load and goes stale once turns stream here.
+  const cursorRef = useRef<{ chatKey: string; streamIndex: number }>(undefined);
+  const onSessionCursor = useCallback((session: ClientSessionState) => {
+    const key = hydratedChatKeyRef.current;
+    const known = cursorRef.current?.chatKey === key ? cursorRef.current.streamIndex : 0;
+    cursorRef.current = { chatKey: key, streamIndex: Math.max(known, session.streamIndex) };
+  }, []);
+  const composerRef = useRef(composer);
+  // eslint-disable-next-line react-hooks/refs -- latest composer state for the stream probe
+  composerRef.current = composer;
+  const resumeOffForRef = useRef(resumeOffFor);
+  // eslint-disable-next-line react-hooks/refs -- latest stuck-resume flag for the stream probe
+  resumeOffForRef.current = resumeOffFor;
+  const probeSessionId = props.chat?.sessionId ?? undefined;
+  const probeStreamIndex = props.chat?.streamIndex ?? 0;
+  const probeOnMount = !resume && shouldProbeForServerTurns(probeSessionId, props.initialEvents);
+
+  // A settled chat does not resume on load, so turns sent into its session
+  // from the server (an emailed reply) would stay hidden. Check the stream
+  // past our cursor on load and whenever the tab comes back into view; if it
+  // moved, remount and replay it the way an unfinished turn is resumed.
+  useEffect(() => {
+    if (!probeSessionId) return;
+    const key = chatKey;
+    const controller = new AbortController();
+    const client = new Client({ host: "" });
+    const cursor = () =>
+      Math.max(
+        probeStreamIndex,
+        cursorRef.current?.chatKey === key ? cursorRef.current.streamIndex : 0,
+      );
+    const probe = (requireIdle: boolean) => {
+      if (remountingRef.current || resumeOffForRef.current === key) return;
+      if (requireIdle && !composerRef.current.idle) return;
+      const from = cursor();
+      void hasUnseenSessionEvents(client, probeSessionId, from, controller.signal).then((ahead) => {
+        if (!ahead || controller.signal.aborted || remountingRef.current) return;
+        // The page may have started (or finished) a turn of its own meanwhile.
+        if (!composerRef.current.idle || cursor() !== from) return;
+        remountingRef.current = true;
+        // Replay from the start of the stream; keep only the quick answers,
+        // which the server stream never had (see hydrationFor).
+        hydratedEventsRef.current = splitQuickEvents(hydratedEventsRef.current).quick;
+        setServerAheadFor(key);
+        setStoreGeneration((value) => value + 1);
+      });
+    };
+    if (probeOnMount) probe(false);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") probe(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- probe once per chat and session
+  }, [chatKey, probeSessionId]);
+
   useLayoutEffect(() => {
     setCanvasHost(canvasHostRef.current);
   }, []);
@@ -194,6 +269,7 @@ export function AgentChat(props: AgentChatProps) {
       resume={resume}
       setPrompt={setPrompt}
       onHydrateEvents={onHydrateEvents}
+      onSessionCursor={onSessionCursor}
       onStuckResuming={onStuckResuming}
     />
   );
@@ -250,6 +326,7 @@ function AgentChatSession({
   setPrompt,
   onComposerChange,
   onHydrateEvents,
+  onSessionCursor,
   onStuckResuming,
   storedEventCount = 0,
 }: AgentChatProps & {
@@ -261,6 +338,7 @@ function AgentChatSession({
   readonly resume?: boolean;
   readonly setPrompt: Dispatch<SetStateAction<string>>;
   readonly onHydrateEvents: (events: readonly MessageStreamEvent[]) => void;
+  readonly onSessionCursor?: (session: ClientSessionState) => void;
   /** Rows the server held when this page loaded; no write may shrink below it. */
   readonly storedEventCount?: number;
   readonly onStuckResuming: (retry?: PromptInputMessage) => void;
@@ -430,6 +508,7 @@ function AgentChatSession({
   const persistSession = (session: ClientSessionState | undefined) => {
     const chatId = activeChatRef.current?.id;
     if (!chatId) return;
+    if (session) onSessionCursor?.(session);
     void fetchJson(
       `/api/chats/${chatId}`,
       "PATCH",
@@ -1007,6 +1086,7 @@ function AgentChatSession({
       },
       error: hideComposer ? composerError : undefined,
       followUp: Boolean(activeChat) && !isEmpty,
+      idle: agent.status === "ready" && !isBusy && !quickBusy && !composerSubmitting,
       status: quickBusy ? "streaming" : toChatStatus(agent.status),
       submit: (message) => {
         void sendPromptRef.current?.(message);

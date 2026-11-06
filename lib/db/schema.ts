@@ -284,6 +284,7 @@ export const pgEmails = pgTable(
     actionSummary: pgText("action_summary"),
     chatId: pgText("chat_id"),
     inReplyTo: pgText("in_reply_to"),
+    messageId: pgText("message_id"),
     attachments: jsonb("attachments").notNull().$type<
       { filename: string; contentType: string; size?: number | null }[]
     >(),
@@ -293,6 +294,7 @@ export const pgEmails = pgTable(
   (table) => [
     index("emails_user_id_idx").on(table.userId),
     index("emails_resend_id_idx").on(table.resendEmailId),
+    index("emails_message_id_idx").on(table.messageId),
     uniqueIndex("emails_resend_id_unique_idx")
       .on(table.resendEmailId)
       .where(sql`${table.resendEmailId} IS NOT NULL`),

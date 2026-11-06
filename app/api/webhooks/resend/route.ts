@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ReceivedEmailContentError } from "@/lib/email-content";
 import { processInboundResendEmail, processInboxEmailReceived } from "@/lib/email-inbox";
+import { recordSentMessageId } from "@/lib/email-send";
 import { getResend, resendConfigured } from "@/lib/resend";
 
 export const runtime = "nodejs";
@@ -45,6 +46,10 @@ export async function POST(request: Request) {
         emailId: event.data.email_id,
         direction: event.data.email?.direction,
       });
+    } else if (event.type === "email.sent" || event.type === "email.delivered") {
+      // Optional events: the Message-ID of agent mail, so a reply to it
+      // continues the session that sent it.
+      await recordSentMessageId(event.data.email_id, event.data.message_id);
     }
 
     return new NextResponse("OK", { status: 200 });

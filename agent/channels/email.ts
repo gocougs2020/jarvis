@@ -8,11 +8,13 @@ type StartBody = {
   email?: string;
   name?: string;
   chatId?: string;
+  /** Continue this chat's existing session (an emailed reply) instead of starting one. */
+  continueSessionId?: string;
 };
 
 export default defineChannel({
   routes: [
-    POST("/api/internal/email-sessions", async (request, { to }) => {
+    POST("/api/internal/email-sessions", async (request, { to, attachSession }) => {
       if (!isInternalDispatchRequest(request.headers.get("x-email-session-secret"))) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -23,19 +25,41 @@ export default defineChannel({
       }
 
       const chatId = body.chatId?.trim();
-      const session = await to(eve, chatId ? { address: chatId } : {}).send(body.prompt, {
-        auth: {
-          authenticator: "better-auth",
-          principalId: body.userId,
-          principalType: "user",
-          attributes: {
-            ...(body.email ? { email: body.email } : {}),
-            ...(body.name ? { name: body.name } : {}),
-            ...(chatId ? { chatId } : {}),
-            source: "email",
-          },
+      const auth = {
+        authenticator: "better-auth",
+        principalId: body.userId,
+        principalType: "user" as const,
+        attributes: {
+          ...(body.email ? { email: body.email } : {}),
+          ...(body.name ? { name: body.name } : {}),
+          ...(chatId ? { chatId } : {}),
+          source: "email",
         },
-      });
+      };
+
+      const continueSessionId = body.continueSessionId?.trim();
+      if (continueSessionId) {
+        // Only the session recorded on this user's chat may be continued.
+        const { getChat, updateChat } = await import("../../lib/store");
+        const chat = chatId ? await getChat(body.userId, chatId) : null;
+        if (!chat || chat.sessionId !== continueSessionId) {
+          return Response.json({ error: "chat_session_mismatch" }, { status: 409 });
+        }
+        // Queue behind a turn the owner may be running in the browser.
+        const result = await attachSession(continueSessionId).send(body.prompt, {
+          auth,
+          turnPolicy: "queue",
+        });
+        if (result.status !== "accepted") {
+          return Response.json({ error: result.status }, { status: 409 });
+        }
+        await updateChat(body.userId, chat.id, { touchUpdatedAt: true }).catch((error: unknown) =>
+          console.error("[email] could not touch continued chat", error),
+        );
+        return Response.json({ sessionId: result.sessionId, continued: true });
+      }
+
+      const session = await to(eve, chatId ? { address: chatId } : {}).send(body.prompt, { auth });
 
       if (chatId) {
         // Record the session on its chat here, not only in the caller, so a

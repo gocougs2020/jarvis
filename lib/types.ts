@@ -184,7 +184,10 @@ export type EmailRecord = {
   hasActionItem: boolean;
   actionSummary: string | null;
   chatId: string | null;
+  /** Message-ID of the parent message (RFC 5322 In-Reply-To), without angle brackets. */
   inReplyTo: string | null;
+  /** This message's own RFC 5322 Message-ID, without angle brackets, when known. */
+  messageId: string | null;
   attachments: EmailAttachmentMeta[];
   createdAt: string;
   updatedAt: string;

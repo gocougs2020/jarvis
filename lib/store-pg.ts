@@ -1077,6 +1077,7 @@ function mapEmail(row: typeof pgEmails.$inferSelect): EmailRecord {
     actionSummary: row.actionSummary,
     chatId: row.chatId,
     inReplyTo: row.inReplyTo,
+    messageId: row.messageId,
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
     createdAt: toIso(row.createdAt) ?? "",
     updatedAt: toIso(row.updatedAt) ?? "",

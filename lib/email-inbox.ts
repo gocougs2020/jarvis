@@ -1,14 +1,30 @@
 import { appConfig } from "@/app.config";
 import { senderPassesDmarc } from "@/lib/email-auth";
-import { classifyEmailAction, emailActionSessionPrompt } from "@/lib/email-classify";
+import {
+  classifyEmailAction,
+  emailActionSessionPrompt,
+  type EmailActionClassification,
+} from "@/lib/email-classify";
 import {
   emailBodyForEmbedding,
   emailHasCompleteBodies,
   fetchReceivedEmailContent,
   normalizeEmailBodies,
   receivedAuthenticationResults,
+  receivedThreadHeaders,
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
+import { emailReplyHandoffPrompt, emailReplyTurnPrompt } from "@/lib/email-reply-prompt";
+import { ensureSentMessageId } from "@/lib/email-send";
+import {
+  matchReplyToOutbound,
+  normalizeMessageId,
+  REPLY_MATCH_CANDIDATE_LIMIT,
+  REPLY_SUBJECT_MATCH_WINDOW_MS,
+  replyParentIds,
+  type ReplyMatch,
+  type ReplyThreadHeaders,
+} from "@/lib/email-thread";
 import {
   findUserById,
   inboundMailOwner,
@@ -23,6 +39,7 @@ import {
   deleteChat,
   createEmail,
   createJob,
+  getChat,
   getEmail,
   getEmailByResendId,
   listEmails,
@@ -34,7 +51,7 @@ import {
 import { agentResendInboxActive, getInboxThreadEmail, isAgentResendInbox } from "@/lib/resend-inbox";
 import { remindFollowThroughPrompt } from "@/lib/schedule-prompt";
 import { runWithUsageScope } from "@/lib/usage-scope";
-import type { EmailDirection, EmailRecord, EmailSearchHit } from "@/lib/types";
+import type { ChatRecord, EmailDirection, EmailRecord, EmailSearchHit } from "@/lib/types";
 
 export type InboundEmailPayload = {
   emailId?: string;
@@ -149,6 +166,7 @@ async function startEmailSessionNow(
   email: EmailRecord,
   prompt: string,
   chatId: string,
+  continueSessionId?: string,
 ): Promise<EmailSessionStart> {
   const secret = internalDispatchSecret();
   const origin = appOrigin();
@@ -168,6 +186,7 @@ async function startEmailSessionNow(
         email: owner?.email,
         name: owner?.name,
         chatId,
+        ...(continueSessionId ? { continueSessionId } : {}),
       }),
     });
     if (!response.ok) {
@@ -285,22 +304,154 @@ async function mayStartUnattendedSession(
   return false;
 }
 
-/** Classify an authorized email and start a session when it asks for something. */
-async function startActionSessionIfRequested(email: EmailRecord, threadNote?: string) {
+/** The agent email an authorized reply answers, and the chat that sent it. */
+export type RepliedAgentEmail = ReplyMatch & { readonly chat: ChatRecord };
+
+/** Recent agent mail whose Message-ID Resend had not reported when it was sent. */
+const MESSAGE_ID_BACKFILL_LIMIT = 5;
+
+/**
+ * Match an inbound email to the agent email it replies to: In-Reply-To /
+ * References against stored Message-IDs, else a "Re:" subject sent to the
+ * same address recently. Callers must have authorized the sender already.
+ */
+export async function findRepliedAgentEmail(
+  email: EmailRecord,
+  thread: ReplyThreadHeaders | null,
+): Promise<RepliedAgentEmail | null> {
+  const input = {
+    inReplyTo: thread?.inReplyTo ?? (email.inReplyTo ? [email.inReplyTo] : []),
+    references: thread?.references ?? [],
+    subject: email.subject,
+    fromAddress: email.fromAddress,
+    receivedAt: new Date(email.createdAt),
+  };
+  let outbound = await listEmails(email.userId, {
+    direction: "outbound",
+    limit: REPLY_MATCH_CANDIDATE_LIMIT,
+  });
+  let match = matchReplyToOutbound(input, outbound);
+
+  if (match?.matchedBy !== "headers" && replyParentIds(input).length > 0) {
+    // The reply names a Message-ID we may not have stored yet (no email.sent
+    // webhook, or Resend had not handed the mail off at send time).
+    const received = input.receivedAt.getTime();
+    const missing = outbound
+      .filter(
+        (row) =>
+          row.chatId &&
+          !row.messageId &&
+          row.resendEmailId &&
+          received - Date.parse(row.createdAt) <= REPLY_SUBJECT_MATCH_WINDOW_MS,
+      )
+      .slice(0, MESSAGE_ID_BACKFILL_LIMIT);
+    if (missing.length > 0) {
+      const filled = new Map(
+        (await Promise.all(missing.map((row) => ensureSentMessageId(row)))).map((row) => [row.id, row]),
+      );
+      outbound = outbound.map((row) => filled.get(row.id) ?? row);
+      match = matchReplyToOutbound(input, outbound);
+    }
+  }
+  if (!match?.email.chatId) return null;
+  const chat = await getChat(email.userId, match.email.chatId);
+  return chat ? { ...match, chat } : null;
+}
+
+/**
+ * Send an emailed reply into the chat session that wrote the email it
+ * answers. True when that session took the turn (or may have, after a
+ * timeout); false when it cannot continue and the caller should start a new
+ * session instead.
+ */
+async function continueRepliedChat(
+  email: EmailRecord,
+  replied: RepliedAgentEmail,
+  prompt: string,
+): Promise<boolean> {
+  const sessionId = replied.chat.sessionId;
+  if (!sessionId) return false;
+  const start = await startEmailSessionNow(email, prompt, replied.chat.id, sessionId);
+  if (start.status === "not-started") return false;
+  await updateEmail(email.userId, email.id, { chatId: replied.chat.id, status: "processed" });
+  if (start.status === "maybe") {
+    // Unconfirmed: queue a /remind follow-through, which checks prior sessions
+    // before acting, as for a new email session.
+    await createJob(email.userId, {
+      prompt: remindFollowThroughPrompt(prompt),
+      firstRunAt: new Date().toISOString(),
+      everyMinutes: null,
+      authenticator: "better-auth",
+      issuer: null,
+    });
+  }
+  return true;
+}
+
+function withNote(prompt: string, note: string | undefined): string {
+  return note ? `${prompt}\n${note}` : prompt;
+}
+
+/**
+ * Handle an authorized email: a reply to agent mail continues the chat that
+ * sent it; anything else starts a session when it asks for something.
+ */
+async function startActionSessionIfRequested(
+  email: EmailRecord,
+  options: { threadNote?: string; thread: ReplyThreadHeaders | null },
+) {
+  const replied = await findRepliedAgentEmail(email, options.thread).catch((error: unknown) => {
+    console.error("[email] reply matching failed", { emailId: email.id, error });
+    return null;
+  });
   const action = await classifyEmailAction(email);
-  if (!action.hasActionItem) return;
+  if (!action.hasActionItem) {
+    // Nothing to do, but file the reply with its conversation.
+    if (replied) await updateEmail(email.userId, email.id, { chatId: replied.chat.id });
+    return;
+  }
 
   const withAction =
     (await updateEmail(email.userId, email.id, {
       hasActionItem: true,
       actionSummary: action.summary || action.prompt || email.subject || "Email to agent",
     })) ?? email;
-  const prompt = emailActionSessionPrompt(withAction, {
+  const classified: EmailActionClassification = {
     hasActionItem: true,
     summary: action.summary || action.prompt || withAction.actionSummary || "",
     prompt: action.prompt || action.summary || "Complete the request in this email.",
+  };
+
+  if (replied) {
+    const continued = await continueRepliedChat(
+      withAction,
+      replied,
+      withNote(emailReplyTurnPrompt(withAction, replied.email, classified), options.threadNote),
+    );
+    if (continued) return;
+    await startEmailActionSession(
+      withAction,
+      withNote(emailReplyHandoffPrompt(withAction, replied.email, classified), options.threadNote),
+    );
+    return;
+  }
+
+  await startEmailActionSession(
+    withAction,
+    withNote(emailActionSessionPrompt(withAction, classified), options.threadNote),
+  );
+}
+
+/** In-Reply-To / References for an authorized email, from the header map or the raw message. */
+async function threadHeadersFor(
+  resendEmailId: string,
+  known: ReplyThreadHeaders | null,
+): Promise<ReplyThreadHeaders | null> {
+  if (known && (known.inReplyTo.length > 0 || known.references.length > 0)) return known;
+  return receivedThreadHeaders(resendEmailId).catch((error: unknown) => {
+    console.error("[email] could not read thread headers", error);
+    return known;
   });
-  await startEmailActionSession(withAction, threadNote ? `${prompt}\n${threadNote}` : prompt);
 }
 
 /**
@@ -362,7 +513,8 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
       hasActionItem: false,
       actionSummary: null,
       chatId: null,
-      inReplyTo: null,
+      inReplyTo: content.inReplyTo[0] ?? null,
+      messageId: content.messageId,
       attachments: content.attachments.length > 0 ? content.attachments : webhookAttachments(eventData),
     });
   } catch (error) {
@@ -373,7 +525,12 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
   }
   await persistEmailEmbeddings(email);
   if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, resendEmailId)) {
-    await startActionSessionIfRequested(email);
+    await startActionSessionIfRequested(email, {
+      thread: await threadHeadersFor(resendEmailId, {
+        inReplyTo: content.inReplyTo,
+        references: content.references,
+      }),
+    });
   }
   return (await getEmail(owner.user.id, email.id)) ?? email;
 }
@@ -428,6 +585,7 @@ export async function processInboxEmailReceived(
       actionSummary: null,
       chatId: null,
       inReplyTo: null,
+      messageId: normalizeMessageId(message.message_id),
       attachments: message.attachments.map((attachment) => ({
         filename: attachment.filename || "attachment",
         contentType: "application/octet-stream",
@@ -442,10 +600,10 @@ export async function processInboxEmailReceived(
   await persistEmailEmbeddings(email);
 
   if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, payload.emailId)) {
-    await startActionSessionIfRequested(
-      email,
-      `This email is in the agent's Resend inbox (thread ${payload.threadId}, email ${payload.emailId}). To answer in that thread, use inbox_reply with this threadId instead of send_email.`,
-    );
+    await startActionSessionIfRequested(email, {
+      threadNote: `This email is in the agent's Resend inbox (thread ${payload.threadId}, email ${payload.emailId}). To answer in that thread, use inbox_reply with this threadId instead of send_email.`,
+      thread: await threadHeadersFor(payload.emailId, null),
+    });
   }
   return (await getEmail(owner.user.id, email.id)) ?? email;
 }

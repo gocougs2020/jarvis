@@ -53,6 +53,55 @@ export function hasTerminalSessionTail(events: readonly MessageStreamEvent[]): b
   return last?.type === "session.failed" || last?.type === "session.completed";
 }
 
+/**
+ * A chat whose saved log ends on a settled turn does not resume on load, so a
+ * turn sent into its session from the server (an emailed reply) would never
+ * show. Such a chat checks the durable stream past its saved cursor instead.
+ */
+export function shouldProbeForServerTurns(
+  sessionId: string | null | undefined,
+  events: readonly MessageStreamEvent[] = [],
+): boolean {
+  return Boolean(sessionId) && hasSettledSessionTail(events) && !hasTerminalSessionTail(events);
+}
+
+/** The slice of the eve client the stream probe uses. */
+export type SessionStreamProbeClient = {
+  readonly sessions: {
+    attach(
+      sessionId: string,
+      options: { readonly streamIndex: number },
+    ): {
+      stream(options: { readonly follow: false; readonly signal?: AbortSignal }): AsyncIterable<unknown>;
+    };
+  };
+};
+
+/**
+ * True when the session's durable stream holds events at or after
+ * `streamIndex`, the cursor this page last consumed. A bounded read
+ * (`follow: false`) that stops at the first event, so it costs one short
+ * request. Any failure reads as "nothing new".
+ */
+export async function hasUnseenSessionEvents(
+  client: SessionStreamProbeClient,
+  sessionId: string,
+  streamIndex: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  try {
+    const stream = client.sessions
+      .attach(sessionId, { streamIndex: Math.max(0, streamIndex) })
+      .stream({ follow: false, signal });
+    for await (const event of stream) {
+      if (event !== undefined) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function isInactiveSessionError(message: string): boolean {
   return /no longer active|no_active_session|unknown or terminal/i.test(message);
 }

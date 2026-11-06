@@ -451,6 +451,7 @@ async function migrateNeonSchema(sql: NeonSql) {
       action_summary TEXT,
       chat_id TEXT,
       in_reply_to TEXT,
+      message_id TEXT,
       attachments JSONB NOT NULL,
       created_at TIMESTAMP NOT NULL,
       updated_at TIMESTAMP NOT NULL
@@ -458,6 +459,9 @@ async function migrateNeonSchema(sql: NeonSql) {
   `;
   await sql`CREATE INDEX IF NOT EXISTS emails_user_id_idx ON emails (user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS emails_resend_id_idx ON emails (resend_email_id)`;
+  // Matches an emailed reply to the agent mail it answers (In-Reply-To / References).
+  await sql`ALTER TABLE emails ADD COLUMN IF NOT EXISTS message_id TEXT`;
+  await sql`CREATE INDEX IF NOT EXISTS emails_message_id_idx ON emails (message_id)`;
   try {
     // One row per Resend message, so a webhook retry cannot start a second session.
     await sql`

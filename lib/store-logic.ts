@@ -44,8 +44,9 @@ export type JobPatch = Partial<
   >
 >;
 
-export type CreateEmailInput = Omit<EmailRecord, "id" | "createdAt" | "updatedAt"> & {
+export type CreateEmailInput = Omit<EmailRecord, "id" | "createdAt" | "updatedAt" | "messageId"> & {
   id?: string;
+  messageId?: string | null;
 };
 
 export type EmailPatch = Partial<
@@ -58,6 +59,8 @@ export type EmailPatch = Partial<
     | "resendEmailId"
     | "bodyText"
     | "bodyHtml"
+    | "messageId"
+    | "inReplyTo"
   >
 >;
 
@@ -476,6 +479,8 @@ export function normalizeEmail(email: EmailRecord): EmailRecord {
     attachments: email.attachments ?? [],
     bodyText: email.bodyText ?? "",
     bodyHtml: email.bodyHtml ?? "",
+    inReplyTo: email.inReplyTo ?? null,
+    messageId: email.messageId ?? null,
   };
 }
 
@@ -486,6 +491,7 @@ export function newEmailRecord(input: CreateEmailInput, stamp = nowIso()): Email
     toAddresses: input.toAddresses ?? [],
     ccAddresses: input.ccAddresses ?? [],
     attachments: input.attachments ?? [],
+    messageId: input.messageId ?? null,
     createdAt: stamp,
     updatedAt: stamp,
   });

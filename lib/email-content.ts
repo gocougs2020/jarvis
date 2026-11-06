@@ -1,5 +1,6 @@
 import PostalMime from "postal-mime";
 import { authenticationResultsInOrder } from "@/lib/email-auth";
+import { normalizeMessageId, parseMessageIds, type ReplyThreadHeaders } from "@/lib/email-thread";
 import { parseAddressList } from "@/lib/email-users";
 import { getResend } from "@/lib/resend";
 import type { EmailAttachmentMeta } from "@/lib/types";
@@ -23,7 +24,26 @@ export type ReceivedEmailContent = {
   bodyHtml: string;
   bodyText: string;
   attachments: EmailAttachmentMeta[];
+  /** This message's Message-ID, without angle brackets. */
+  messageId: string | null;
+  /** In-Reply-To ids, without angle brackets. */
+  inReplyTo: string[];
+  /** References ids, without angle brackets, root first. */
+  references: string[];
 };
+
+/** A header from Resend's `headers` map, whatever its key casing. */
+export function headerFromMap(
+  headers: Readonly<Record<string, string>> | null | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted && typeof value === "string") return value;
+  }
+  return undefined;
+}
 
 export function textToHtml(text: string): string {
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -89,6 +109,7 @@ export async function fetchReceivedEmailContent(resendEmailId: string): Promise<
   }
 
   const { bodyHtml, bodyText } = normalizeEmailBodies({ html, text });
+  const headers = data.headers ?? null;
   return {
     subject: (data.subject ?? "").trim(),
     from: data.from ?? "",
@@ -102,6 +123,9 @@ export async function fetchReceivedEmailContent(resendEmailId: string): Promise<
       contentType: attachment.content_type || "application/octet-stream",
       size: typeof attachment.size === "number" ? attachment.size : null,
     })),
+    messageId: normalizeMessageId(data.message_id ?? headerFromMap(headers, "message-id")),
+    inReplyTo: parseMessageIds(headerFromMap(headers, "in-reply-to")),
+    references: parseMessageIds(headerFromMap(headers, "references")),
   };
 }
 
@@ -118,6 +142,33 @@ export async function receivedAuthenticationResults(resendEmailId: string): Prom
   if (!response.ok) return null;
   const parsed = await PostalMime.parse(await response.arrayBuffer());
   return authenticationResultsInOrder(parsed.headers ?? []);
+}
+
+/**
+ * In-Reply-To and References of a received email, read from the raw message.
+ * Used when Resend's header map did not carry them (or for inbox mail, whose
+ * API shape has no headers). Null when Resend has no raw message.
+ */
+export async function receivedThreadHeaders(
+  resendEmailId: string,
+): Promise<(ReplyThreadHeaders & { messageId: string | null }) | null> {
+  const { data } = await getResend().emails.receiving.get(resendEmailId);
+  const fromMap = {
+    messageId: normalizeMessageId(data?.message_id ?? headerFromMap(data?.headers, "message-id")),
+    inReplyTo: parseMessageIds(headerFromMap(data?.headers, "in-reply-to")),
+    references: parseMessageIds(headerFromMap(data?.headers, "references")),
+  };
+  if (fromMap.inReplyTo.length > 0 || fromMap.references.length > 0) return fromMap;
+  const url = data?.raw?.download_url;
+  if (!url) return data ? fromMap : null;
+  const response = await fetch(url);
+  if (!response.ok) return data ? fromMap : null;
+  const parsed = await PostalMime.parse(await response.arrayBuffer());
+  return {
+    messageId: fromMap.messageId ?? normalizeMessageId(parsed.messageId),
+    inReplyTo: parseMessageIds(parsed.inReplyTo),
+    references: parseMessageIds(parsed.references),
+  };
 }
 
 async function parseRawEmail(downloadUrl: string): Promise<{ html: string; text: string }> {
