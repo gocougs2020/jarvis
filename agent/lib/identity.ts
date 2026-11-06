@@ -1,4 +1,5 @@
 import type { SessionContext } from "eve/context";
+import { appConfig } from "../../app.config";
 import { findUserById } from "../../lib/email-users";
 
 const SELF_RECIPIENTS = new Set([
@@ -28,6 +29,28 @@ export function userFromAuth(auth: SessionAuth | null | undefined) {
     issuer: auth.issuer ?? null,
     chatId: typeof auth.attributes?.chatId === "string" ? auth.attributes.chatId : null,
   };
+}
+
+type SessionIdentity = {
+  readonly session: {
+    readonly id: string;
+    readonly parent?: { readonly rootSessionId: string } | null;
+  };
+};
+
+/**
+ * The session a chat is linked to. A delegated child (the built-in `agent`
+ * tool or a declared subagent) inherits the root's auth, chat id included, but
+ * runs in its own session; it must resolve to the root's chat, never re-link
+ * the chat to itself, or reloading the chat would show the child's transcript.
+ */
+export function chatSessionId(ctx: SessionIdentity): string {
+  return ctx.session.parent?.rootSessionId ?? ctx.session.id;
+}
+
+/** True inside a delegated child session rather than the user's own conversation. */
+export function isChildSession(ctx: SessionIdentity): boolean {
+  return Boolean(ctx.session.parent);
 }
 
 export function optionalUser(ctx: SessionContext) {
@@ -63,22 +86,38 @@ function hasValue(value: unknown): boolean {
   return value != null;
 }
 
+function isAccountAddress(value: string, accountEmail: unknown): boolean {
+  return (
+    typeof accountEmail === "string" &&
+    accountEmail.trim().length > 0 &&
+    value.trim().toLowerCase() === accountEmail.trim().toLowerCase()
+  );
+}
+
 /**
- * Unattended reminder runs may email the signed-in user without approval, and
- * nobody else. Any `cc`, or a named `to`, needs a person to approve — otherwise
- * text injected into a shared file or a forwarded email could add an outside
- * recipient to a reminder that nobody reviews.
+ * Mail that goes only to the signed-in user (omitted `to`, a "me" alias, or
+ * their own account address, and no `cc`) is sent without approval, from any
+ * session, unless `security.selfEmailRequiresApproval` is on. It cannot reach
+ * anyone else, so text injected into a web page, file, or forwarded email
+ * gains nothing by triggering it, and a research run, schedule, or emailed
+ * request no longer stalls on an approval nobody is watching.
+ *
+ * Anyone else always needs a person to approve.
  */
 export function sendEmailNeedsApproval(
   attributes: Readonly<Record<string, unknown>> | null | undefined,
   toolInput: unknown,
+  options: { selfEmailRequiresApproval?: boolean } = {},
 ): boolean {
   const reminder = attributes?.source === "schedule" && attributes?.reminder === "1";
-  if (!reminder) return true;
+  const selfRequiresApproval =
+    options.selfEmailRequiresApproval ?? appConfig.security.selfEmailRequiresApproval;
+  if (selfRequiresApproval && !reminder) return true;
   const input = (toolInput ?? {}) as { to?: unknown; cc?: unknown };
-  const to = typeof input.to === "string" ? input.to : undefined;
   if (input.to !== undefined && typeof input.to !== "string") return true;
-  if (!isSelfSendTarget(to)) return true;
+  const to = typeof input.to === "string" ? input.to : undefined;
+  const toSelf = isSelfSendTarget(to) || isAccountAddress(to ?? "", attributes?.email);
+  if (!toSelf) return true;
   return hasValue(input.cc);
 }
 

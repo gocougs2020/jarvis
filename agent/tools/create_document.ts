@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { requireUser } from "../lib/identity";
+import { chatSessionId, requireUser } from "../lib/identity";
 import { workspace } from "../lib/workspace-state";
 import { createUserDocument, toClientDocument } from "../../lib/documents";
 import { isDocumentKind } from "../../lib/document-kind";
@@ -44,7 +44,7 @@ export default defineTool({
     }
     const document = await createUserDocument(user.userId, {
       content,
-      eveSessionId: ctx.session.id,
+      eveSessionId: chatSessionId(ctx),
       filename: input.filename,
       folderId: input.folderId,
       isPublic: input.isPublic,

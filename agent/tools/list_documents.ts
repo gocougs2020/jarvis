@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { requireUser } from "../lib/identity";
+import { chatSessionId, requireUser } from "../lib/identity";
 import { getChatByEveSessionId, listChatDocuments, listDocuments, listFolders } from "../../lib/store";
 import { searchUserLibrary, toClientDocument } from "../../lib/documents";
 
@@ -28,7 +28,7 @@ export default defineTool({
     }
 
     const chat = input.sessionOnly
-      ? await getChatByEveSessionId(user.userId, ctx.session.id)
+      ? await getChatByEveSessionId(user.userId, chatSessionId(ctx))
       : null;
     const [documents, folders] = await Promise.all([
       input.sessionOnly

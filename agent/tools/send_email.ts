@@ -6,7 +6,7 @@ import { resendConfigured } from "../../lib/resend";
 
 export default defineTool({
   description:
-    "Send an email through Resend from the agent address. Use after the user asks to send, including weekly reports, files, or replies. Requires approval except on an unattended reminder or /remind run to the signed-in user. Attach library files with documentIds. Omit to (or pass me / my email) to send to the signed-in user's account email — do not ask them to type that address. On a reminder run, omit to and include the session link from the dispatch prompt.",
+    "Send an email through Resend from the agent address. Use after the user asks to send, including research briefs, weekly reports, files, or replies. Mail only to the signed-in user (to omitted, no cc) sends at once with no approval; any other recipient or cc waits for the user to approve. Attach library files with documentIds. Omit to (or pass me / my email) to send to the signed-in user's account email — do not ask them to type that address. On a reminder run, omit to and include the session link from the dispatch prompt.",
   approval: ({ session, toolInput }) =>
     sendEmailNeedsApproval(session.auth.current?.attributes, toolInput)
       ? "user-approval"

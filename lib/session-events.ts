@@ -70,3 +70,30 @@ export function latestTurnReplyText(events: readonly MessageStreamEvent[]): stri
   }
   return parts.join("\n\n");
 }
+
+/**
+ * The root session for `sessionId` when it is a delegated child named by a
+ * `subagent.called` event in this chat's log, else `sessionId` unchanged.
+ * Repairs chats saved while a child session could overwrite the chat's link
+ * (reloading such a chat resumed the child's transcript instead of the chat).
+ */
+export function rootSessionIdFromEvents(
+  sessionId: string,
+  events: readonly { readonly type: string; readonly data?: unknown }[],
+): string {
+  const parentOf = new Map<string, string>();
+  for (const event of events) {
+    if (event.type !== "subagent.called") continue;
+    const data = event.data as { childSessionId?: unknown; sessionId?: unknown } | undefined;
+    if (typeof data?.childSessionId === "string" && typeof data.sessionId === "string") {
+      parentOf.set(data.childSessionId, data.sessionId);
+    }
+  }
+  let current = sessionId;
+  const seen = new Set<string>();
+  while (parentOf.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = parentOf.get(current) as string;
+  }
+  return current;
+}

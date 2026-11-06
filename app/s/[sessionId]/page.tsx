@@ -3,6 +3,7 @@ import { compactStreamEvents } from "@/lib/chat-event-compaction";
 import type { MessageStreamEvent } from "eve/client";
 import { SessionClient } from "@/app/s/[sessionId]/session-client";
 import { requireSession } from "@/lib/session";
+import { relinkRootSession } from "@/lib/chat-session-link";
 import { getChat, listChatEvents } from "@/lib/store";
 
 export default async function SessionPage({
@@ -22,9 +23,10 @@ export default async function SessionPage({
   const from = Array.isArray(query.from) ? query.from[0] : query.from;
   const docs = Array.isArray(query.docs) ? query.docs[0] : query.docs;
   const doc = Array.isArray(query.doc) ? query.doc[0] : query.doc;
-  const chat = await getChat(session.user.id, sessionId);
-  if (!chat) notFound();
-  const events = await listChatEvents(chat.id);
+  const found = await getChat(session.user.id, sessionId);
+  if (!found) notFound();
+  const events = await listChatEvents(found.id);
+  const chat = await relinkRootSession(session.user.id, found, events);
 
   return (
     <SessionClient
@@ -36,3 +38,4 @@ export default async function SessionPage({
     />
   );
 }
+
