@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { compactStreamEvents } from "@/lib/chat-event-compaction";
 import { requireApiSession } from "@/lib/api";
+import { relinkRootSession } from "@/lib/chat-session-link";
 import { teardownEveSession } from "@/lib/eve-session";
 import {
   deleteChat,
@@ -17,13 +18,13 @@ export async function GET(
   const { session, error } = await requireApiSession(request);
   if (error || !session) return error;
   const { id } = await params;
-  const chat = await getChat(session.user.id, id);
-  if (!chat) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const found = await getChat(session.user.id, id);
+  if (!found) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const rows = await listChatEvents(id);
+  const chat = await relinkRootSession(session.user.id, found, rows);
   return NextResponse.json({
     chat,
-    events: compactStreamEvents(
-      (await listChatEvents(id)).map((row) => row.event as { type: string }),
-    ),
+    events: compactStreamEvents(rows.map((row) => row.event as { type: string })),
   });
 }
 

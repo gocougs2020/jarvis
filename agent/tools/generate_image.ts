@@ -1,7 +1,7 @@
 import { generateImage } from "ai";
 import { defineTool, toolOutput, toolOutputPart } from "eve/tools";
 import { z } from "zod";
-import { requireUser } from "../lib/identity";
+import { chatSessionId, requireUser } from "../lib/identity";
 import { createUserDocument, toClientDocument } from "../../lib/documents";
 import {
   IMAGE_GENERATION_MODEL,
@@ -48,7 +48,7 @@ export default defineTool({
     });
     try {
       const user = requireUser(ctx);
-      const chat = await resolveChatForEveSession(user.userId, ctx.session.id, user.chatId);
+      const chat = await resolveChatForEveSession(user.userId, chatSessionId(ctx), user.chatId);
       const tokens = tokensFromUnknownUsage(result.usage);
       const hasTokens = tokens.inputTokens > 0 || tokens.outputTokens > 0;
       await runWithUsageScope({ userId: user.userId, chatId: chat?.id }, () =>
@@ -87,7 +87,7 @@ export default defineTool({
         images.map(async (image) => {
           const document = await createUserDocument(user.userId, {
             content: Buffer.from(image.base64, "base64"),
-            eveSessionId: ctx.session.id,
+            eveSessionId: chatSessionId(ctx),
             filename: image.filename,
             kind: "image",
             mimeType: image.mediaType,

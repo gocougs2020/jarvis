@@ -50,6 +50,11 @@ export async function resolveChatForEveSession(
   if (linked) return linked;
   if (preferredChatId) {
     const preferred = await getChat(userId, preferredChatId);
+    // Link only a chat that has no session yet. A chat already on another
+    // session keeps it: overwriting would point the chat at whichever session
+    // touched it last (a delegated child, say) and reloads would show that
+    // transcript. The web client records its own session change.
+    if (preferred?.sessionId && preferred.sessionId !== eveSessionId) return preferred;
     if (preferred) {
       return (await updateChat(userId, preferred.id, { sessionId: eveSessionId })) ?? preferred;
     }

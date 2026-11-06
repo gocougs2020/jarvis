@@ -1,10 +1,12 @@
 import { defineAgent, defineDynamic } from "eve";
 import { isQuickRoute } from "../lib/quick-route";
+import { chatSessionId } from "./lib/identity";
 import { COMPACTION_MODEL, resolveSessionModelSelection } from "./lib/models";
 
 function attributionFrom(ctx: {
   readonly session: {
     readonly id: string;
+    readonly parent?: { readonly rootSessionId: string } | null;
     readonly auth: {
       readonly current?: {
         principalId?: string | null;
@@ -16,7 +18,7 @@ function attributionFrom(ctx: {
 }) {
   const auth = ctx.session.auth.current;
   return {
-    eveSessionId: ctx.session.id,
+    eveSessionId: chatSessionId(ctx),
     userId:
       auth?.principalType === "user" && auth.principalId ? auth.principalId : undefined,
     chatId: typeof auth?.attributes?.chatId === "string" ? auth.attributes.chatId : undefined,

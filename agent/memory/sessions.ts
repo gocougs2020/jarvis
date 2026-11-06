@@ -9,7 +9,7 @@ import {
   resolveChatForEveSession,
 } from "../../lib/session-memory";
 import { lastMessageText } from "../lib/message-text";
-import { requireUser } from "../lib/identity";
+import { chatSessionId, isChildSession, requireUser } from "../lib/identity";
 
 const sessionMemoryProvider = defineMemoryProvider({
   recall: {
@@ -23,12 +23,15 @@ const sessionMemoryProvider = defineMemoryProvider({
   capture: {
     async "turn.completed"(ctx) {
       try {
+        // A delegated child's "prompt" is the parent's hand-off, not the
+        // user's words; capturing it would re-title the chat after it.
+        if (isChildSession(ctx)) return;
         const user = requireUser(ctx);
         const prompt = lastMessageText(ctx.turn.input, "user");
         const response = lastMessageText(ctx.messages, "assistant");
         if (!prompt && !response) return;
         await captureCompletedTurn({
-          eveSessionId: ctx.session.id,
+          eveSessionId: chatSessionId(ctx),
           prompt,
           response,
           turnId: ctx.turn.id,
@@ -44,11 +47,12 @@ const sessionMemoryProvider = defineMemoryProvider({
 
 async function recallForTurn(ctx: SessionContext, prompt: string) {
   try {
+    if (isChildSession(ctx)) return { messages: [] };
     const user = requireUser(ctx);
     if (!promptNeedsRecall(prompt)) return { messages: [] };
     // The chat lookup only matters for the vector search, so let it run while
     // the HyDE draft and embeddings are in flight instead of before them.
-    const chat = resolveChatForEveSession(user.userId, ctx.session.id, user.chatId);
+    const chat = resolveChatForEveSession(user.userId, chatSessionId(ctx), user.chatId);
     const { citations, content } = await recallRelatedSessions(user.userId, prompt, {
       // Caught here so an early return in recall cannot leave it unhandled;
       // the citations chain below logs the error.

@@ -150,6 +150,14 @@ export type AppConfig = {
      * anyone who forges your From can then run the agent.
      */
     emailSessionsRequireDmarc: boolean;
+    /**
+     * `send_email` to the signed-in user only (no other recipient, no CC)
+     * skips the approval prompt by default, so a research brief, schedule, or
+     * emailed request can mail you its result without waiting on a click.
+     * Turn this on to approve those too (reminder runs still send unattended).
+     * Mail to anyone else always needs approval.
+     */
+    selfEmailRequiresApproval: boolean;
   };
   voice: {
     /** Voice for `models.speech`. Grok TTS voices: ara, eve, leo, rex, sal. */
@@ -333,6 +341,7 @@ export const appConfig = {
   security: {
     sandboxNetwork: "deny-all",
     emailSessionsRequireDmarc: true,
+    selfEmailRequiresApproval: false,
   },
 
   voice: {

@@ -68,6 +68,13 @@ import {
 import { DOCUMENT_TOOLS, documentsFromToolOutput } from "@/lib/client-documents";
 import { documentKindLabel } from "@/lib/document-kind";
 import {
+  EMAIL_TOOLS,
+  emailCardFields,
+  emailCardStatus,
+  segmentMessageParts,
+} from "@/lib/tool-activity";
+import { EmailToolCard, ToolActivityGroup } from "@/components/tool-activity";
+import {
   displaySessionCitationText,
   linkifySessionCitations,
   relatedChatsForFooter,
@@ -139,18 +146,38 @@ export function AgentMessage({
         </Sources>
       ) : null}
       <MessageContent>
-        {message.parts.map((part, index) =>
-          hasAssistantText && part.type === "reasoning" ? null : (
+        {segmentMessageParts(
+          message.parts,
+          isActivityPart,
+          (part) => (part.type === "dynamic-tool" ? part.toolCallId : part.type),
+          (part) => hasAssistantText && part.type === "reasoning",
+        ).map((segment) =>
+          segment.type === "activity" ? (
+            <ToolActivityGroup
+              key={segment.key}
+              parts={segment.parts.filter(
+                (part): part is EveDynamicToolPart => part.type === "dynamic-tool",
+              )}
+              renderDetail={(part) => (
+                <div className="space-y-3">
+                  <ToolInput input={part.input} />
+                  <ToolOutput errorText={part.errorText} output={part.output} />
+                </div>
+              )}
+            />
+          ) : (
             <AgentMessagePart
               canRespond={canRespond}
               citations={citations}
               citationComponents={citationComponents}
-              key={partKey(part, index)}
+              key={partKey(segment.part, segment.index)}
               onInputResponses={onInputResponses}
               onOpenDocument={onOpenDocument}
-              part={part}
+              part={segment.part}
               role={message.role}
-              showCaret={isStreaming && message.role === "assistant" && index === lastTextIndex}
+              showCaret={
+                isStreaming && message.role === "assistant" && segment.index === lastTextIndex
+              }
             />
           ),
         )}
@@ -218,6 +245,26 @@ function AgentMessagePart({
             inputRequest={inputRequest}
             inputResponse={part.toolMetadata?.eve?.inputResponse}
             onInputResponses={onInputResponses}
+          />
+        );
+      }
+
+      if (EMAIL_TOOLS.has(part.toolName)) {
+        return (
+          <EmailToolCard
+            approval={
+              part.toolMetadata?.eve?.inputRequest ? (
+                <ToolApproval
+                  canRespond={canRespond}
+                  onInputResponses={onInputResponses}
+                  part={part}
+                />
+              ) : undefined
+            }
+            errorText={part.errorText}
+            fields={emailCardFields(part)}
+            rawInput={<ToolInput input={part.input} />}
+            status={emailCardStatus(part)}
           />
         );
       }
@@ -789,6 +836,18 @@ function sourcesFromToolOutput(output: unknown): readonly { href: string; title:
         : href;
     return [{ href, title }];
   });
+}
+
+/** Routine tool calls that fold into one activity row (see lib/tool-activity.ts). */
+function isActivityPart(part: EveMessagePart): boolean {
+  if (part.type !== "dynamic-tool") return false;
+  if (part.toolMetadata?.eve?.inputRequest) return false;
+  if (part.state === "approval-requested" || part.state === "approval-responded") return false;
+  return !(
+    part.toolName === GENERATE_IMAGE_TOOL ||
+    DOCUMENT_TOOLS.has(part.toolName) ||
+    EMAIL_TOOLS.has(part.toolName)
+  );
 }
 
 function partKey(part: EveMessagePart, index: number): string {

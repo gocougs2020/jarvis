@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { requireUser } from "../lib/identity";
+import { chatSessionId, requireUser } from "../lib/identity";
 import { attachDocument, getChatByEveSessionId } from "../../lib/store";
 import { getUserDocument, toClientDocument } from "../../lib/documents";
 
@@ -15,7 +15,7 @@ export default defineTool({
     const user = requireUser(ctx);
     const document = await getUserDocument(user.userId, input.id);
     const chatId =
-      input.chatId ?? (await getChatByEveSessionId(user.userId, ctx.session.id))?.id;
+      input.chatId ?? (await getChatByEveSessionId(user.userId, chatSessionId(ctx)))?.id;
     if (!chatId) {
       throw new Error("No chat session is linked yet. Ask the user to send another message, then attach again.");
     }
