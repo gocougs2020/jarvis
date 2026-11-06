@@ -35,7 +35,7 @@ If it is ambiguous, ask once: ping you, or should I do it? If you cannot do the 
    - Nudge: omit `skill`. Brief is what to ping them about, in their words.
    - Do: pass `skill` `remind`. Brief is the work to finish — facts only, not this procedure.
    - Both: `cadence` `{ kind: "once", timezone, at }` and a matching `firstRunAt`.
-4. Tell them when it will fire, that they will get an email from their agent address, and that a session will open they can continue.
+4. Tell them when it will fire, that they will get an email from the agent address, and that a session will open they can continue.
 
 ## When this job fires (nudge)
 

@@ -1,4 +1,5 @@
 import { defineAgent, defineDynamic } from "eve";
+import { isQuickRoute } from "../lib/quick-route";
 import { COMPACTION_MODEL, resolveSessionModelSelection } from "./lib/models";
 
 function attributionFrom(ctx: {
@@ -19,6 +20,7 @@ function attributionFrom(ctx: {
     userId:
       auth?.principalType === "user" && auth.principalId ? auth.principalId : undefined,
     chatId: typeof auth?.attributes?.chatId === "string" ? auth.attributes.chatId : undefined,
+    routeHint: isQuickRoute(auth?.attributes?.routeHint) ? auth.attributes.routeHint : undefined,
   };
 }
 

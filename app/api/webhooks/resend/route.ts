@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ReceivedEmailContentError } from "@/lib/email-content";
-import { processInboundResendEmail } from "@/lib/email-inbox";
+import { processInboundResendEmail, processInboxEmailReceived } from "@/lib/email-inbox";
 import { getResend, resendConfigured } from "@/lib/resend";
 
 export const runtime = "nodejs";
@@ -35,6 +35,15 @@ export async function POST(request: Request) {
         receivedFor: event.data.received_for,
         subject: event.data.subject,
         attachments: event.data.attachments,
+      });
+    } else if (event.type === "inbox.email.received") {
+      // Resend Inboxes (resendInbox in app.config.ts): store the mail and,
+      // when the owner wrote it, start a session.
+      await processInboxEmailReceived({
+        inboxId: event.data.inbox_id,
+        threadId: event.data.thread_id,
+        emailId: event.data.email_id,
+        direction: event.data.email?.direction,
       });
     }
 

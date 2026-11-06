@@ -48,7 +48,6 @@ export type UserSettings = {
   userId: string;
   modelTier: ModelTier;
   instructionOverlay: string;
-  inboundMailToken: string | null;
 };
 
 export type ProfileMemory = {
@@ -272,6 +271,7 @@ export const USAGE_PURPOSES = [
   "chat",
   "compaction",
   "routing",
+  "quick_reply",
   "session_title",
   "session_memory",
   "embeddings",

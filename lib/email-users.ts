@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getNeonDb, getSqliteDb, hasNeon } from "@/lib/db";
 import { pgUser, sqliteUser } from "@/lib/db/schema";
 
@@ -33,6 +33,42 @@ export async function listAppUsers(): Promise<AppUser[]> {
   return getSqliteDb()
     .select({ id: sqliteUser.id, email: sqliteUser.email, name: sqliteUser.name })
     .from(sqliteUser);
+}
+
+/** The workspace owner: the first account created. This app is one person's agent. */
+export async function workspaceOwner(): Promise<AppUser | null> {
+  if (hasNeon()) {
+    const [row] = await getNeonDb()
+      .select({ id: pgUser.id, email: pgUser.email, name: pgUser.name })
+      .from(pgUser)
+      .orderBy(asc(pgUser.createdAt))
+      .limit(1);
+    return row ?? null;
+  }
+  const rows = await getSqliteDb()
+    .select({ id: sqliteUser.id, email: sqliteUser.email, name: sqliteUser.name })
+    .from(sqliteUser)
+    .orderBy(asc(sqliteUser.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Who mail to the agent address belongs to: the account whose email sent
+ * it, or else the workspace owner. `fromAccount` is true only in the first
+ * case; From is spoofable, so callers still check sender authentication
+ * before acting on it.
+ */
+export async function inboundMailOwner(
+  fromAddress: string | null | undefined,
+): Promise<{ user: AppUser; fromAccount: boolean } | null> {
+  const from = fromAddress ? normalizeEmailAddress(fromAddress) : "";
+  if (from) {
+    const sender = (await listAppUsers()).find((user) => normalizeEmailAddress(user.email) === from);
+    if (sender) return { user: sender, fromAccount: true };
+  }
+  const owner = await workspaceOwner();
+  return owner ? { user: owner, fromAccount: false } : null;
 }
 
 export async function findUserById(userId: string): Promise<AppUser | null> {

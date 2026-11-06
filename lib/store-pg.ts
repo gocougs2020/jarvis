@@ -34,7 +34,6 @@ import type {
   UserSettings,
   UserSkill,
 } from "@/lib/types";
-import { normalizeInboundMailToken } from "@/lib/inbound-mail-token";
 import { parseJobCadence } from "@/lib/job-cadence";
 import {
   applyCitationUpdate,
@@ -176,7 +175,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
 
 export async function upsertUserSettings(
   userId: string,
-  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay" | "inboundMailToken">>,
+  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay">>,
 ): Promise<UserSettings> {
   const current = await getUserSettings(userId);
   const next = applySettingsPatch(current, patch);
@@ -186,28 +185,15 @@ export async function upsertUserSettings(
       userId,
       modelTier: next.modelTier,
       instructionOverlay: next.instructionOverlay,
-      inboundMailToken: next.inboundMailToken,
     })
     .onConflictDoUpdate({
       target: pgUserSettings.userId,
       set: {
         modelTier: next.modelTier,
         instructionOverlay: next.instructionOverlay,
-        inboundMailToken: next.inboundMailToken,
       },
     });
   return next;
-}
-
-export async function findUserIdByInboundMailToken(token: string): Promise<string | null> {
-  const normalized = normalizeInboundMailToken(token);
-  if (!normalized) return null;
-  const [row] = await getNeonDb()
-    .select({ userId: pgUserSettings.userId })
-    .from(pgUserSettings)
-    .where(eq(pgUserSettings.inboundMailToken, normalized))
-    .limit(1);
-  return row?.userId ?? null;
 }
 
 export async function listChats(userId: string): Promise<ChatRecord[]> {

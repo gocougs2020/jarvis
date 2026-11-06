@@ -86,26 +86,24 @@ export function asDate(value: string | Date): Date {
 }
 
 export function defaultSettings(userId: string): UserSettings {
-  return { userId, modelTier: "auto", instructionOverlay: "", inboundMailToken: null };
+  return { userId, modelTier: "auto", instructionOverlay: "" };
 }
 
 export function settingsFromStored(row: {
   userId: string;
   modelTier: string;
   instructionOverlay: string;
-  inboundMailToken?: string | null;
 }): UserSettings {
   return {
     userId: row.userId,
     modelTier: row.modelTier as UserSettings["modelTier"],
     instructionOverlay: row.instructionOverlay,
-    inboundMailToken: row.inboundMailToken?.trim() || null,
   };
 }
 
 export function applySettingsPatch(
   current: UserSettings,
-  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay" | "inboundMailToken">>,
+  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay">>,
 ): UserSettings {
   const defined = Object.fromEntries(
     Object.entries(patch).filter(([, value]) => value !== undefined),

@@ -284,12 +284,6 @@ async function migrateNeonSchema(sql: NeonSql) {
       instruction_overlay TEXT NOT NULL DEFAULT ''
     )
   `;
-  await sql`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS inbound_mail_token TEXT`;
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS user_settings_inbound_mail_token_uidx
-    ON user_settings (inbound_mail_token)
-    WHERE inbound_mail_token IS NOT NULL
-  `;
   await sql`
     CREATE TABLE IF NOT EXISTS user_skills (
       id TEXT PRIMARY KEY,

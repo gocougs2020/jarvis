@@ -14,6 +14,8 @@ import {
 import { findUserById } from "../../lib/email-users";
 import { eveSessionIdFromUrl, isInternalDispatchRequest } from "../../lib/internal-auth";
 import { eveReceiveAddress } from "../../lib/eve-receive";
+import { QUICK_ROUTE_HINT_HEADER, WEB_CHAT_ID_HEADER } from "../../lib/quick-route";
+import { verifyQuickRouteHint } from "../../lib/quick-route-hint";
 
 function betterAuthSession(): AuthFn<Request> {
   return async (request) => {
@@ -26,6 +28,13 @@ function betterAuthSession(): AuthFn<Request> {
     );
     if (!session) return null;
     await assertSessionNotOwnedByAnotherUser(request, session.user.id);
+    // Set on the first turn after the quick-reply layer handed the prompt
+    // over; the agent then skips its own routing call (agent/lib/models.ts).
+    const routeHint = verifyQuickRouteHint(
+      request.headers.get(QUICK_ROUTE_HINT_HEADER),
+      session.user.id,
+    );
+    const chatId = await ownedWebChatId(request, session.user.id);
     return {
       authenticator: "better-auth",
       principalId: session.user.id,
@@ -33,6 +42,8 @@ function betterAuthSession(): AuthFn<Request> {
       attributes: {
         email: session.user.email,
         name: session.user.name,
+        ...(chatId ? { chatId } : {}),
+        ...(routeHint ? { routeHint } : {}),
       },
     };
   };
@@ -52,6 +63,19 @@ async function assertSessionNotOwnedByAnotherUser(request: Request, userId: stri
   if (owners.length > 0 && !owners.includes(userId)) {
     throw new ForbiddenError({ message: "This session belongs to another account." });
   }
+}
+
+/**
+ * The web client names its chat on every request, so a new session links to
+ * the right chat at once instead of waiting for the client to record the
+ * session id (or falling back to the newest unlinked chat).
+ */
+async function ownedWebChatId(request: Request, userId: string): Promise<string | undefined> {
+  const chatId = request.headers.get(WEB_CHAT_ID_HEADER)?.trim();
+  if (!chatId || chatId.length > 200) return undefined;
+  const { getChat } = await import("../../lib/store");
+  const chat = await getChat(userId, chatId).catch(() => null);
+  return chat?.id;
 }
 
 function scheduleDispatchAuth(): AuthFn<Request> {

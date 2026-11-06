@@ -157,13 +157,24 @@ export async function assessPromptRoute(
  */
 export async function resolveSessionModelSelection(
   messages: readonly ModelMessage[],
-  attribution?: { readonly eveSessionId?: string; readonly userId?: string; readonly chatId?: string },
+  attribution?: {
+    readonly eveSessionId?: string;
+    readonly userId?: string;
+    readonly chatId?: string;
+    /** Route the quick-reply layer already chose (signed; see lib/quick-route-hint.ts). */
+    readonly routeHint?: SessionChatRoute;
+  },
 ) {
   const locked = sessionChatRoute.get();
   if (locked) return modelSelectionForRoute(locked);
 
   const text = latestUserText(messages);
   if (!text.trim()) return modelSelectionForRoute("fast");
+
+  if (attribution?.routeHint) {
+    sessionChatRoute.update(() => attribution.routeHint as SessionChatRoute);
+    return modelSelectionForRoute(attribution.routeHint);
+  }
 
   const userId = attribution?.userId;
   // The chat lookup is only for usage attribution, so it runs alongside the

@@ -1,4 +1,5 @@
 import PostalMime from "postal-mime";
+import { authenticationResultsInOrder } from "@/lib/email-auth";
 import { parseAddressList } from "@/lib/email-users";
 import { getResend } from "@/lib/resend";
 import type { EmailAttachmentMeta } from "@/lib/types";
@@ -102,6 +103,21 @@ export async function fetchReceivedEmailContent(resendEmailId: string): Promise<
       size: typeof attachment.size === "number" ? attachment.size : null,
     })),
   };
+}
+
+/**
+ * `Authentication-Results` values of a received email, topmost first, read
+ * from the raw message so duplicate headers keep their order (Resend's
+ * `headers` map collapses them). Null when Resend has no raw message.
+ */
+export async function receivedAuthenticationResults(resendEmailId: string): Promise<string[] | null> {
+  const { data } = await getResend().emails.receiving.get(resendEmailId);
+  const url = data?.raw?.download_url;
+  if (!url) return null;
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const parsed = await PostalMime.parse(await response.arrayBuffer());
+  return authenticationResultsInOrder(parsed.headers ?? []);
 }
 
 async function parseRawEmail(downloadUrl: string): Promise<{ html: string; text: string }> {

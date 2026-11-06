@@ -1,34 +1,37 @@
+import { appConfig } from "@/app.config";
+import { senderPassesDmarc } from "@/lib/email-auth";
 import { classifyEmailAction, emailActionSessionPrompt } from "@/lib/email-classify";
 import {
   emailBodyForEmbedding,
   emailHasCompleteBodies,
   fetchReceivedEmailContent,
   normalizeEmailBodies,
+  receivedAuthenticationResults,
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
-import { findUserById, normalizeEmailAddress, parseAddressList } from "@/lib/email-users";
-import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import {
-  extractInboundMailToken,
-  inboundMailAuthorizesUnattendedSession,
-  isUserAgentInboundRecipient,
-} from "@/lib/inbound-mail-token";
+  findUserById,
+  inboundMailOwner,
+  normalizeEmailAddress,
+  parseAddressList,
+} from "@/lib/email-users";
+import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
+import { isAgentRecipient } from "@/lib/resend";
 import { embedTexts } from "@/lib/embeddings";
 import {
   createChat,
   deleteChat,
   createEmail,
   createJob,
-  findUserIdByInboundMailToken,
   getEmail,
   getEmailByResendId,
-  getUserSettings,
   listEmails,
   searchUserEmbeddings,
   titleFromPrompt,
   updateChat,
   updateEmail,
 } from "@/lib/store";
+import { agentResendInboxActive, getInboxThreadEmail, isAgentResendInbox } from "@/lib/resend-inbox";
 import { remindFollowThroughPrompt } from "@/lib/schedule-prompt";
 import { runWithUsageScope } from "@/lib/usage-scope";
 import type { EmailDirection, EmailRecord, EmailSearchHit } from "@/lib/types";
@@ -258,20 +261,32 @@ export async function ensureStoredEmailContent(email: EmailRecord): Promise<Emai
   }
 }
 
-async function maybeStartInboundActionSession(email: EmailRecord, recipients: string[], fromAddress: string) {
-  const owner = await findUserById(email.userId);
-  const settings = await getUserSettings(email.userId);
-  if (
-    !inboundMailAuthorizesUnattendedSession({
-      recipients,
-      fromAddress,
-      ownerToken: settings.inboundMailToken,
-      ownerEmail: owner?.email,
-    })
-  ) {
-    return;
-  }
+/**
+ * Only mail an account sent itself may start an unattended session. The
+ * agent address is not secret and From is easy to forge, so by default the
+ * message must also pass DMARC for its From domain.
+ */
+async function mayStartUnattendedSession(
+  fromAccount: boolean,
+  fromAddress: string,
+  resendEmailId: string,
+): Promise<boolean> {
+  if (!fromAccount) return false;
+  if (!appConfig.security.emailSessionsRequireDmarc) return true;
+  const results = await receivedAuthenticationResults(resendEmailId).catch((error: unknown) => {
+    console.error("[email] could not read sender authentication", error);
+    return null;
+  });
+  if (senderPassesDmarc(results, fromAddress)) return true;
+  console.info("[email] no session: the sender did not pass DMARC", {
+    fromAddress,
+    verdict: results === null ? "no raw message" : results[0] ? "fail" : "no Authentication-Results",
+  });
+  return false;
+}
 
+/** Classify an authorized email and start a session when it asks for something. */
+async function startActionSessionIfRequested(email: EmailRecord, threadNote?: string) {
   const action = await classifyEmailAction(email);
   if (!action.hasActionItem) return;
 
@@ -285,9 +300,14 @@ async function maybeStartInboundActionSession(email: EmailRecord, recipients: st
     summary: action.summary || action.prompt || withAction.actionSummary || "",
     prompt: action.prompt || action.summary || "Complete the request in this email.",
   });
-  await startEmailActionSession(withAction, prompt);
+  await startEmailActionSession(withAction, threadNote ? `${prompt}\n${threadNote}` : prompt);
 }
 
+/**
+ * `email.received` for the agent address (`RESEND_FROM_EMAIL`). The mail is
+ * stored for the account that sent it, or for the workspace owner, and is
+ * searchable from the Inbox page and the agent's email tools.
+ */
 export async function processInboundResendEmail(eventData: InboundEmailPayload): Promise<EmailRecord | null> {
   const resendEmailId = eventData.emailId?.trim();
   if (resendEmailId) {
@@ -303,19 +323,13 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
   const ccAddresses = parseAddressList(eventData.cc);
   const receivedFor = parseAddressList(eventData.receivedFor);
   const recipients = [...new Set([...toAddresses, ...ccAddresses, ...receivedFor])];
-  if (!isUserAgentInboundRecipient(recipients)) {
-    console.info("[email] inbound ignored; not a user agent address", { recipients });
+  if (!isAgentRecipient(recipients)) {
+    console.info("[email] inbound ignored; not addressed to the agent", { recipients });
     return null;
   }
-
-  const fromAddress = eventData.from ? normalizeEmailAddress(eventData.from) : "";
-  const inboundToken = extractInboundMailToken(recipients);
-  const tokenUserId = inboundToken ? await findUserIdByInboundMailToken(inboundToken) : null;
-  const owner = tokenUserId ? await findUserById(tokenUserId) : null;
-  if (!owner) {
-    console.info("[email] inbound ignored; no matching user", { fromAddress, recipients });
-    return null;
-  }
+  // With a Resend inbox on the agent address, its inbox.email.received event
+  // carries this mail, so handling it here too would store it twice.
+  if (await agentResendInboxActive()) return null;
 
   if (!resendEmailId) {
     console.error("[email] inbound missing Resend email id; cannot fetch body");
@@ -323,16 +337,21 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
   }
 
   const content = await fetchReceivedEmailContent(resendEmailId);
-  const storedFrom = content.from ? normalizeEmailAddress(content.from) : fromAddress;
+  const fromAddress = normalizeEmailAddress(content.from || eventData.from || "");
+  const owner = await inboundMailOwner(fromAddress);
+  if (!owner) {
+    console.info("[email] inbound ignored; no account yet");
+    return null;
+  }
   const storedTo = content.to.length > 0 ? content.to : toAddresses;
   const storedCc = content.cc.length > 0 ? content.cc : ccAddresses;
 
   let email: EmailRecord;
   try {
     email = await createEmail({
-      userId: owner.id,
+      userId: owner.user.id,
       direction: "inbound",
-      fromAddress: storedFrom || fromAddress || "unknown",
+      fromAddress: fromAddress || "unknown",
       toAddresses: storedTo,
       ccAddresses: storedCc,
       subject: content.subject || eventData.subject?.trim() || "",
@@ -353,6 +372,80 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
     throw error;
   }
   await persistEmailEmbeddings(email);
-  await maybeStartInboundActionSession(email, recipients, fromAddress);
-  return (await getEmail(owner.id, email.id)) ?? email;
+  if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, resendEmailId)) {
+    await startActionSessionIfRequested(email);
+  }
+  return (await getEmail(owner.user.id, email.id)) ?? email;
+}
+
+export type InboxEmailReceivedPayload = {
+  inboxId: string;
+  threadId: string;
+  emailId: string;
+  direction?: "inbound" | "outbound";
+};
+
+/**
+ * `inbox.email.received` from the agent's Resend inbox. Stored like any
+ * inbound email; the same rule decides whether it may start a session, and
+ * that session is told the thread so it replies there.
+ */
+export async function processInboxEmailReceived(
+  payload: InboxEmailReceivedPayload,
+): Promise<EmailRecord | null> {
+  if (payload.direction === "outbound") return null;
+  const existing = await getEmailByResendId(payload.emailId);
+  if (existing) return existing;
+  if (!(await isAgentResendInbox(payload.inboxId))) {
+    console.info("[email] inbox mail ignored; not the agent's inbox", { inboxId: payload.inboxId });
+    return null;
+  }
+
+  const message = await getInboxThreadEmail(payload.inboxId, payload.threadId, payload.emailId);
+  if (message.direction === "outbound") return null;
+  const fromAddress = normalizeEmailAddress(message.from);
+  const owner = await inboundMailOwner(fromAddress);
+  if (!owner) {
+    console.info("[email] inbox mail ignored; no account yet");
+    return null;
+  }
+  const bodies = normalizeEmailBodies({ html: message.html ?? "", text: message.text ?? "" });
+
+  let email: EmailRecord;
+  try {
+    email = await createEmail({
+      userId: owner.user.id,
+      direction: "inbound",
+      fromAddress: fromAddress || "unknown",
+      toAddresses: parseAddressList(message.to),
+      ccAddresses: parseAddressList(message.cc),
+      subject: message.subject?.trim() || "",
+      bodyText: bodies.bodyText,
+      bodyHtml: bodies.bodyHtml,
+      resendEmailId: payload.emailId,
+      status: "received",
+      hasActionItem: false,
+      actionSummary: null,
+      chatId: null,
+      inReplyTo: null,
+      attachments: message.attachments.map((attachment) => ({
+        filename: attachment.filename || "attachment",
+        contentType: "application/octet-stream",
+        size: attachment.size,
+      })),
+    });
+  } catch (error) {
+    const raced = await getEmailByResendId(payload.emailId);
+    if (raced) return raced;
+    throw error;
+  }
+  await persistEmailEmbeddings(email);
+
+  if (await mayStartUnattendedSession(owner.fromAccount, fromAddress, payload.emailId)) {
+    await startActionSessionIfRequested(
+      email,
+      `This email is in the agent's Resend inbox (thread ${payload.threadId}, email ${payload.emailId}). To answer in that thread, use inbox_reply with this threadId instead of send_email.`,
+    );
+  }
+  return (await getEmail(owner.user.id, email.id)) ?? email;
 }

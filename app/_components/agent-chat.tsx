@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus, FileUIPart, UserContent } from "ai";
-import type { ClientSessionState, MessageStreamEvent } from "eve/client";
+import { defaultMessageReducer, type ClientSessionState, type EveMessage, type MessageStreamEvent } from "eve/client";
 import { useEveAgent } from "eve/react";
 import { AlertCircleIcon, ArrowLeftIcon, BrainIcon, FileTextIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +61,19 @@ import {
   shouldResumeEveSession,
 } from "@/lib/session-events";
 import { documentsFromToolOutput } from "@/lib/client-documents";
+import {
+  hasAgentEvents,
+  newQuickTurnId,
+  quickHandoffContext,
+  quickHistoryFromEvents,
+  quickTurnEvents,
+  quickTurnsFromEvents,
+  splitQuickEvents,
+  readQuickReply,
+  startsWithSkillMention,
+  type QuickDecisionEvent,
+} from "@/lib/quick-reply-client";
+import { QUICK_ROUTE_HINT_HEADER, WEB_CHAT_ID_HEADER } from "@/lib/quick-route";
 import { isTextDocumentKind } from "@/lib/document-kind";
 import { cn, fetchJson } from "@/lib/utils";
 import {
@@ -129,8 +142,10 @@ export function AgentChat(props: AgentChatProps) {
   // replays the server stream from the start and dedupes by id, so hydrating
   // them would duplicate earlier replies: when resuming, start empty and let
   // the replay rebuild the transcript. Keyed to `resume` so the two never
-  // disagree (an emptied transcript always replays).
-  const hydrationFor = (resuming: boolean) => (resuming ? [] : [...(props.initialEvents ?? [])]);
+  // disagree (an emptied transcript always replays). Quick answers are the
+  // exception: the server stream never had them, so they are kept.
+  const hydrationFor = (resuming: boolean) =>
+    resuming ? splitQuickEvents(props.initialEvents ?? []).quick : [...(props.initialEvents ?? [])];
   const hydratedEventsRef = useRef(hydrationFor(resume));
   const hydratedChatKeyRef = useRef(chatKey);
   const remountingRef = useRef(false);
@@ -278,9 +293,25 @@ function AgentChatSession({
   const sentPending = useRef(false);
   const liveTurnRef = useRef(false);
   const markSessionActivityRef = useRef<() => void>(() => undefined);
-  const eventsRef = useRef<MessageStreamEvent[]>([...initialEvents]);
+  // Quick answers stay outside the eve store (see splitQuickEvents); they
+  // always come before the agent's turns in the chat log.
+  const [initialSplit] = useState(() => splitQuickEvents(initialEvents));
+  const eventsRef = useRef<MessageStreamEvent[]>([...initialSplit.quick, ...initialSplit.agent]);
   const sendRef = useRef<ReturnType<typeof useEveAgent>["send"] | undefined>(undefined);
   const sendErrorRef = useRef<string | undefined>(undefined);
+  // Instant replies answered before any agent session exists. They render
+  // from this state while live; their events are saved to the chat log so a
+  // reload replays them through the eve reducer like any other turn.
+  const [quickTurns, setQuickTurns] = useState<QuickTurnView[]>(() =>
+    quickTurnsFromEvents(initialSplit.quick).map((turn) => ({ ...turn, streaming: false })),
+  );
+  const [quickBusy, setQuickBusy] = useState(false);
+  // One-line acknowledgment shown while the agent spins up after a hand-off.
+  const [quickAck, setQuickAck] = useState<string>();
+  const quickEventsRef = useRef<MessageStreamEvent[]>(initialSplit.quick);
+  const quickAbortRef = useRef<{ controller: AbortController; cancelled: boolean } | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     if (!chat) return;
@@ -492,7 +523,12 @@ function AgentChatSession({
   useEffect(() => () => window.clearTimeout(checkpointTimer.current), []);
 
   const agent = useEveAgent({
-    initialEvents,
+    // Re-read before every request: names the chat so a new session links to it.
+    headers: (): Record<string, string> => {
+      const chatId = activeChatRef.current?.id;
+      return chatId ? { [WEB_CHAT_ID_HEADER]: chatId } : {};
+    },
+    initialEvents: initialSplit.agent,
     initialSession:
       chat?.sessionId
         ? {
@@ -506,7 +542,11 @@ function AgentChatSession({
       onHydrateEvents(eventsRef.current);
       // Save the first event of a new turn right away, so a reload sees an
       // unfinished turn and resumes it; later events ride the checkpoint timer.
-      if (storedEventsRef.current.length === 0 || hasSettledSessionTail(storedEventsRef.current)) {
+      if (
+        storedEventsRef.current.length === 0 ||
+        hasSettledSessionTail(storedEventsRef.current) ||
+        !hasAgentEvents(storedEventsRef.current)
+      ) {
         persistEvents(eventsRef.current);
       } else {
         scheduleCheckpoint();
@@ -533,8 +573,10 @@ function AgentChatSession({
       if (session) persistSession(session);
     },
     onFinish(snapshot) {
-      eventsRef.current = [...snapshot.events];
-      onHydrateEvents(snapshot.events);
+      // Quick answers precede every agent turn and are never in the eve store.
+      eventsRef.current = [...quickEventsRef.current, ...snapshot.events];
+      onHydrateEvents(eventsRef.current);
+      setQuickAck(undefined);
       persistSession(snapshot.session);
       if (liveTurnRef.current) {
         liveTurnRef.current = false;
@@ -548,11 +590,12 @@ function AgentChatSession({
       void refreshSessionCitations();
       // Persist off the store's completion path so stringify/fetch cannot
       // keep the composer locked after the turn has already settled.
-      window.setTimeout(() => persistEvents(snapshot.events, true), 0);
+      window.setTimeout(() => persistEvents(eventsRef.current, true), 0);
     },
     onError(error) {
       sendErrorRef.current = error.message;
       setCancellationError(error.message);
+      setQuickAck(undefined);
     },
   });
 
@@ -616,6 +659,8 @@ function AgentChatSession({
 
   const startFreshSession = () => {
     eventsRef.current = [];
+    quickEventsRef.current = [];
+    setQuickTurns([]);
     // An intentional reset is the one write allowed to empty the stored log.
     window.clearTimeout(checkpointTimer.current);
     checkpointTimer.current = undefined;
@@ -684,17 +729,27 @@ function AgentChatSession({
   const turnFailure = isBusy || isResuming ? undefined : getLatestTurnFailure(agent.events);
   const errorMessage = cancellationError ?? agent.error?.message ?? turnFailure;
   const hasPendingInitial = Boolean(initialPrompt?.trim() || initialFiles?.length);
+  const quickMessages = quickTurnMessages(quickTurns);
+  const quickPending = quickTurns.some((turn) => turn.streaming && !turn.reply);
+  const displayMessages =
+    quickMessages.length > 0 ? [...quickMessages, ...agent.data.messages] : agent.data.messages;
   const isEmpty =
-    agent.data.messages.length === 0 &&
+    displayMessages.length === 0 &&
     !showPendingThinking &&
     errorMessage === undefined &&
     !hasPendingInitial &&
     !creating;
   const contextUsage = sessionContextUsage(agent.events);
-  const downloadMessages = transcriptDownloadMessages(agent.data.messages);
+  const downloadMessages = transcriptDownloadMessages(displayMessages);
 
   const requestCancellation = async () => {
     setCancellationError(undefined);
+    const quick = quickAbortRef.current;
+    if (quick) {
+      quick.cancelled = true;
+      quick.controller.abort();
+      return;
+    }
     try {
       await agent.cancel();
       persistEvents(eventsRef.current, true);
@@ -703,8 +758,16 @@ function AgentChatSession({
     }
   };
 
-  const sendTurn = async (content: string | UserContent, steer: boolean) => {
-    const options = steer ? { turnPolicy: "steer" as const } : undefined;
+  const sendTurn = async (
+    content: string | UserContent,
+    steer: boolean,
+    handoff: QuickHandoff = {},
+  ) => {
+    const options = {
+      ...(steer ? { turnPolicy: "steer" as const } : {}),
+      ...(handoff.headers ? { headers: handoff.headers } : {}),
+      ...(handoff.clientContext ? { clientContext: handoff.clientContext } : {}),
+    };
     sendErrorRef.current = undefined;
     try {
       await agent.send(content, options);
@@ -728,9 +791,108 @@ function AgentChatSession({
     }
   };
 
+  const updateQuickTurn = (turnId: string, patch: Partial<QuickTurnView>) => {
+    setQuickTurns((turns) =>
+      turns.map((turn) => (turn.turnId === turnId ? { ...turn, ...patch } : turn)),
+    );
+  };
+
+  /**
+   * Instant-reply layer: one fast model call answers simple prompts here, or
+   * hands the prompt to the agent with a one-line acknowledgment and a signed
+   * route so the agent can skip its own routing call. Any failure or timeout
+   * hands off as if this layer did not exist.
+   */
+  const runQuickReply = async (
+    text: string,
+    chatId: string | undefined,
+  ): Promise<{ answered: true } | { answered: false; handoff: QuickHandoff }> => {
+    const turnId = newQuickTurnId();
+    const history = quickHistoryFromEvents(eventsRef.current);
+    const handoffContext = quickHandoffContext(history);
+    const run = { controller: new AbortController(), cancelled: false };
+    quickAbortRef.current = run;
+    setQuickBusy(true);
+    setQuickAck(undefined);
+    setQuickTurns((turns) => [...turns, { prompt: text, reply: "", streaming: true, turnId }]);
+
+    let decision: QuickDecisionEvent | undefined;
+    let reply = "";
+    let ack = "";
+    let resolveDecision: (value: QuickDecisionEvent | undefined) => void = () => undefined;
+    const decided = new Promise<QuickDecisionEvent | undefined>((resolve) => {
+      resolveDecision = resolve;
+    });
+    const timer = window.setTimeout(() => {
+      if (decision) return;
+      run.controller.abort();
+      resolveDecision(undefined);
+    }, appConfig.quickReply.decisionTimeoutMs);
+    const finished = readQuickReply(
+      { chatId, history, prompt: text, signal: run.controller.signal },
+      {
+        onDecision(event) {
+          decision = event;
+          window.clearTimeout(timer);
+          resolveDecision(event);
+        },
+        onText(delta) {
+          if (decision?.mode === "answer") {
+            reply += delta;
+            updateQuickTurn(turnId, { reply });
+          } else {
+            ack += delta;
+            setQuickAck(ack.trim() || undefined);
+          }
+        },
+      },
+    ).finally(() => {
+      window.clearTimeout(timer);
+      resolveDecision(undefined);
+    });
+
+    const first = await decided;
+    const answer = first?.mode === "answer" ? await finished : undefined;
+    const finalReply = reply.trim();
+    const keep = answer === "done" || (run.cancelled && Boolean(finalReply));
+    if (quickAbortRef.current === run) quickAbortRef.current = undefined;
+    setQuickBusy(false);
+
+    if (first?.mode === "answer" && keep && finalReply) {
+      const events = quickTurnEvents(turnId, text, finalReply);
+      quickEventsRef.current = [...quickEventsRef.current, ...events];
+      eventsRef.current = [...eventsRef.current, ...events];
+      onHydrateEvents(eventsRef.current);
+      persistEvents(eventsRef.current, true);
+      updateQuickTurn(turnId, { reply: finalReply, streaming: false });
+      if (isVoiceModeOn() && !run.cancelled) void speakText(finalReply, chatId);
+      return { answered: true };
+    }
+
+    setQuickTurns((turns) => turns.filter((turn) => turn.turnId !== turnId));
+    if (run.cancelled) {
+      // Stopped before any answer: put the prompt back so it is not lost.
+      setPrompt((current) => current || text);
+      return { answered: true };
+    }
+    if (first?.mode !== "agent") setQuickAck(undefined);
+    return {
+      answered: false,
+      handoff: {
+        clientContext: handoffContext,
+        headers:
+          first?.mode === "agent" && first.hint
+            ? { [QUICK_ROUTE_HINT_HEADER]: first.hint }
+            : undefined,
+      },
+    };
+  };
+
   const sendPrompt = async (message: PromptInputMessage) => {
     const text = message.text.trim();
-    if ((text.length === 0 && message.files.length === 0) || isResuming || creating) return;
+    if ((text.length === 0 && message.files.length === 0) || isResuming || creating || quickBusy) {
+      return;
+    }
 
     const priorError = cancellationError ?? agent.error?.message;
     const startedNewChat = !activeChatRef.current;
@@ -742,6 +904,33 @@ function AgentChatSession({
       await ensureChat(text || "New session");
 
       const chatId = activeChatRef.current?.id;
+      // Only before the agent has started: once a session exists it holds
+      // the conversation, and a warm session answers quickly anyway.
+      const quickEligible =
+        appConfig.quickReply.enabled &&
+        message.files.length === 0 &&
+        text.length > 0 &&
+        !isBusy &&
+        !startsWithSkillMention(text) &&
+        !activeChatRef.current?.sessionId &&
+        !hasAgentEvents(eventsRef.current);
+      // The agent never saw earlier quick answers; give them to its first turn
+      // even when this prompt skips the quick layer (attachments, a /skill).
+      const agentStarted = Boolean(activeChatRef.current?.sessionId) || hasAgentEvents(eventsRef.current);
+      let handoff: QuickHandoff = agentStarted
+        ? {}
+        : { clientContext: quickHandoffContext(quickHistoryFromEvents(eventsRef.current)) };
+      if (quickEligible) {
+        setCreating(false);
+        const quick = await runQuickReply(text, chatId);
+        if (quick.answered) {
+          markSessionActivity();
+          refreshSessionTitle(text);
+          return;
+        }
+        handoff = quick.handoff;
+      }
+
       if (startedNewChat && chatId) {
         storePendingPrompt(chatId, { files: message.files, text });
       }
@@ -767,7 +956,7 @@ function AgentChatSession({
         void persistChatFiles(chatId, message.files).then(() => refreshSessionDocuments());
       }
 
-      turn = sendTurn(content, isBusy);
+      turn = sendTurn(content, isBusy, handoff);
       if (startedNewChat && chatId) {
         claimPendingPrompt(chatId);
       }
@@ -812,13 +1001,13 @@ function AgentChatSession({
 
   useLayoutEffect(() => {
     onComposerChange?.({
-      busy: isBusy,
+      busy: isBusy || quickBusy,
       cancel: () => {
         void requestCancellation();
       },
       error: hideComposer ? composerError : undefined,
       followUp: Boolean(activeChat) && !isEmpty,
-      status: toChatStatus(agent.status),
+      status: quickBusy ? "streaming" : toChatStatus(agent.status),
       submit: (message) => {
         void sendPromptRef.current?.(message);
       },
@@ -833,6 +1022,7 @@ function AgentChatSession({
     isBusy,
     isEmpty,
     onComposerChange,
+    quickBusy,
   ]);
 
   useEffect(() => {
@@ -897,11 +1087,11 @@ function AgentChatSession({
           <BrandHero />
           <div className="flex flex-col items-center gap-4">
             <HomePrompt
-              busy={isBusy}
+              busy={isBusy || quickBusy}
               onCancel={() => void requestCancellation()}
               prompt={prompt}
               setPrompt={setPrompt}
-              status={toChatStatus(agent.status)}
+              status={quickBusy ? "streaming" : toChatStatus(agent.status)}
               submitting={composerSubmitting}
               onSubmit={submitPrompt}
             />
@@ -936,7 +1126,7 @@ function AgentChatSession({
   const conversation = (
     <Conversation className="min-h-0 flex-1">
       <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-4 pt-8 pb-8 sm:px-6">
-        {agent.data.messages.map((message, index) =>
+        {displayMessages.map((message, index) =>
           showPendingThinking &&
           isPendingAssistantShell &&
           message.id === lastMessage.id ? null : (
@@ -945,11 +1135,12 @@ function AgentChatSession({
               citationNav={citationNav}
               citations={catalogForAssistantMessage(
                 message,
-                agent.data.messages,
+                displayMessages,
                 citationSets,
               )}
               isStreaming={
-                agent.status === "streaming" && index === agent.data.messages.length - 1
+                (agent.status === "streaming" || quickBusy) &&
+                index === displayMessages.length - 1
               }
               key={message.id}
               message={message}
@@ -964,7 +1155,9 @@ function AgentChatSession({
             />
           ),
         )}
-        {showPendingThinking ? <PendingThinking /> : null}
+        {showPendingThinking || quickPending ? (
+          <PendingThinking label={showPendingThinking ? quickAck : undefined} />
+        ) : null}
         {errorMessage && !hideComposer ? <ErrorMessage message={errorMessage} /> : null}
       </ConversationContent>
       <ConversationScrollButton />
@@ -1142,13 +1335,13 @@ function AgentChatSession({
               </p>
             ) : null}
             <HomePrompt
-              busy={isBusy}
+              busy={isBusy || quickBusy}
               onCancel={() => void requestCancellation()}
               placeholder={activeChat && !isEmpty ? appConfig.home.followUpPlaceholder : undefined}
               prompt={prompt}
               setPrompt={setPrompt}
               slashMenuPlacement="above-input"
-              status={toChatStatus(agent.status)}
+              status={quickBusy ? "streaming" : toChatStatus(agent.status)}
               submitting={composerSubmitting}
               onSubmit={submitPrompt}
             />
@@ -1214,13 +1407,42 @@ function ErrorMessage({ message }: { readonly message: string }) {
   );
 }
 
-function PendingThinking() {
+type QuickTurnView = {
+  readonly turnId: string;
+  readonly prompt: string;
+  readonly reply: string;
+  readonly streaming: boolean;
+};
+
+/** Extra options for the agent's first turn after the quick-reply layer handed off. */
+type QuickHandoff = {
+  readonly headers?: Record<string, string>;
+  readonly clientContext?: string;
+};
+
+const quickReducer = defaultMessageReducer();
+
+/** Live quick turns, rendered through eve's reducer so they match replayed ones. */
+function quickTurnMessages(turns: readonly QuickTurnView[]): EveMessage[] {
+  if (turns.length === 0) return [];
+  let data = quickReducer.initial();
+  for (const turn of turns) {
+    for (const event of quickTurnEvents(turn.turnId, turn.prompt, turn.reply)) {
+      if (turn.streaming && event.type === "turn.completed") continue;
+      if (!turn.reply && event.type === "message.completed") continue;
+      data = quickReducer.reduce(data, event);
+    }
+  }
+  return [...data.messages];
+}
+
+function PendingThinking({ label }: { readonly label?: string }) {
   return (
     <Message aria-live="polite" from="assistant">
       <MessageContent>
         <div className="mb-4 flex w-full items-center gap-2 text-muted-foreground text-sm">
           <BrainIcon aria-hidden="true" className="size-4" />
-          <Shimmer duration={1}>Thinking…</Shimmer>
+          <Shimmer duration={1}>{label || "Thinking…"}</Shimmer>
         </div>
       </MessageContent>
     </Message>

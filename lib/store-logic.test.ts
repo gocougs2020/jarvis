@@ -58,7 +58,6 @@ describe("defaultSettings", () => {
       userId: "user-1",
       modelTier: "auto",
       instructionOverlay: "",
-      inboundMailToken: null,
     });
   });
 
@@ -67,7 +66,6 @@ describe("defaultSettings", () => {
       userId: "user-1",
       modelTier: "high" as const,
       instructionOverlay: "Be brief",
-      inboundMailToken: "k7xqm2n4pw",
     };
     expect(
       applySettingsPatch(current, { modelTier: undefined, instructionOverlay: "Shorter" }),

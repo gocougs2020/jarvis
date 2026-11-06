@@ -143,7 +143,6 @@ export const pgUserSettings = pgTable("user_settings", {
   userId: pgText("user_id").primaryKey(),
   modelTier: pgText("model_tier").notNull().default("auto"),
   instructionOverlay: pgText("instruction_overlay").notNull().default(""),
-  inboundMailToken: pgText("inbound_mail_token"),
 });
 
 // Session-generated records (intake briefs, quotes, plans, decisions) live as

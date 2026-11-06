@@ -262,7 +262,7 @@ export function SettingsPanel({
             <MemorySettings active={activeTab === "memory"} />
           </TabsContent>
           <TabsContent value="inbox">
-            <InboundMailSettings inboundMail={inboundMail} onRotated={setInboundMail} />
+            <InboundMailSettings inboundMail={inboundMail} onChanged={setInboundMail} />
           </TabsContent>
           <TabsContent className="space-y-4" value="skills">
             <Card>
