@@ -287,12 +287,11 @@ Any AI Gateway model ID works, including other providers (`anthropic/…`, `goog
 | `routing` | First-prompt route classification | `medium` |
 | `emailClassification` | Inbound email action items | `medium` |
 | `webSearch` | `web_search` query call | `medium` |
-| `compaction` | Context-window checkpoints | `medium` |
 | `sessionTitle` | Recents list titles and descriptions | `low` |
 | `sessionMemory` | HyDE draft for related-session recall | `medium` |
 | `instructions` | Instruction overlays, custom skills, and schedules | `high` |
 
-Chat routes pass the effort through each provider's own option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults. Calls that reason get extra `maxOutputTokens` headroom (`lib/reasoning.ts`) so thinking does not crowd out the answer. Routing and HyDE block the first token of a turn, so more effort there means a slower start.
+Compaction has no entry: eve has no compaction reasoning setting when the chat model is chosen dynamically, so checkpoints run at the provider's default effort. Chat routes pass the effort through each provider's own option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults. Calls that reason get extra `maxOutputTokens` headroom (`lib/reasoning.ts`) so thinking does not crowd out the answer. Routing and HyDE block the first token of a turn, so more effort there means a slower start.
 
 If you change a chat model ID, add its context window under `models.contextWindows` (tokens). Unknown IDs fall back to `1_050_000`. Compaction and the session context chip use `min(256_000, 90% of that catalog size)` so a million-token model does not fill its full window.
 

@@ -1,4 +1,3 @@
-import { gateway, wrapLanguageModel, type LanguageModel } from "ai";
 import type { ReasoningEffort } from "../app.config";
 
 /**
@@ -19,17 +18,4 @@ const REASONING_HEADROOM_TOKENS: Readonly<Record<ReasoningEffort, number>> = {
 
 export function outputTokenBudget(effort: ReasoningEffort, answerTokens: number): number {
   return answerTokens + REASONING_HEADROOM_TOKENS[effort];
-}
-
-/**
- * A Gateway model that always calls with `effort`. For framework-owned calls
- * that take a model but no reasoning setting, such as eve compaction.
- */
-export function modelWithReasoning(modelId: string, effort: ReasoningEffort): LanguageModel {
-  return wrapLanguageModel({
-    model: gateway(modelId),
-    middleware: {
-      transformParams: async ({ params }) => ({ ...params, reasoning: effort }),
-    },
-  });
 }

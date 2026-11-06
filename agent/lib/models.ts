@@ -3,7 +3,7 @@ import type { AgentModelOptionsDefinition } from "eve";
 import { defineState } from "eve/context";
 import { z } from "zod";
 import { appConfig, type ReasoningEffort } from "../../app.config";
-import { modelWithReasoning, outputTokenBudget } from "../../lib/reasoning";
+import { outputTokenBudget } from "../../lib/reasoning";
 import { recordGenerateTextUsage } from "../../lib/record-usage";
 import { resolveChatForEveSession } from "../../lib/session-memory";
 import { getUserSettings } from "../../lib/store";
@@ -14,11 +14,6 @@ export const LOW_MODEL = appConfig.models.chatLow;
 export const HIGH_MODEL = appConfig.models.chatHigh;
 export const COMPACTION_MODEL = appConfig.models.compaction;
 const REASONING = appConfig.models.reasoning;
-
-/** Compaction model wrapped so its summary calls use `reasoning.compaction`. */
-export function compactionModel() {
-  return modelWithReasoning(COMPACTION_MODEL, REASONING.compaction);
-}
 
 /** Locked after the first prompt of a session so later turns reuse the same model cache. */
 export type SessionChatRoute = "fast" | "reason" | "complex";

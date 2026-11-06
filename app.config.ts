@@ -47,7 +47,7 @@ export type AppConfig = {
     instructions: string;
     sessionTitle: string;
     sessionMemory: string;
-    /** Model used only for compaction checkpoints. */
+    /** Model used only for compaction checkpoints (provider-default reasoning; eve has no setting for it here). */
     compaction: string;
     embeddings: string;
     imageGeneration: string;
@@ -70,7 +70,6 @@ export type AppConfig = {
       emailClassification: ReasoningEffort;
       /** `web_search` query call (runs on `chatFast`). */
       webSearch: ReasoningEffort;
-      compaction: ReasoningEffort;
       sessionTitle: ReasoningEffort;
       /** HyDE draft for related-session recall. Keep `memory.hydeTimeoutMs` long enough for it. */
       sessionMemory: ReasoningEffort;
@@ -155,7 +154,6 @@ export const appConfig = {
       routing: "medium",
       emailClassification: "medium",
       webSearch: "medium",
-      compaction: "medium",
       sessionTitle: "low",
       sessionMemory: "medium",
       instructions: "high",
