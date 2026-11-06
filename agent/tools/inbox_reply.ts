@@ -6,7 +6,7 @@ import {
   draftInboxReply,
   latestInboundEmailId,
   replyInInboxThread,
-  requireUserResendInbox,
+  requireAgentResendInbox,
   sendInboxDraft,
   RESEND_ID_PATTERN,
 } from "../../lib/resend-inbox";
@@ -35,13 +35,14 @@ const inputSchema = z.object({
 
 export default defineTool({
   description:
-    "Reply inside a thread of the user's Resend inbox, from their agent address, so the conversation stays threaded. Prefer mode draft unless the user asked you to send. Sending (send or send_draft) always needs the user's approval. For a brand-new email with no thread, use send_email.",
+    "Reply inside a thread of the agent's Resend inbox, from the agent address, so the conversation stays threaded. Prefer mode draft unless the user asked you to send. Sending (send or send_draft) always needs the user's approval. For a brand-new email with no thread, use send_email.",
   approval: ({ toolInput }) =>
     (toolInput as { mode?: string } | undefined)?.mode === "draft" ? "not-applicable" : "user-approval",
   inputSchema,
   async execute(input, ctx) {
-    const user = requireUser(ctx);
-    const inbox = await requireUserResendInbox(user.userId);
+    // Signed-in users only; the inbox is the deployment's one agent address.
+    requireUser(ctx);
+    const inbox = await requireAgentResendInbox();
     const idempotencyKey = `inbox-reply/${ctx.callId}`;
 
     const text = input.text?.trim();

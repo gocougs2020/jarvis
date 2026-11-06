@@ -22,7 +22,6 @@ import type {
   UserSettings,
   UserSkill,
 } from "@/lib/types";
-import { normalizeInboundMailToken } from "@/lib/inbound-mail-token";
 import { parseJobCadence } from "@/lib/job-cadence";
 import {
   applyChatPatch,
@@ -154,7 +153,7 @@ export function getUserSettings(userId: string): UserSettings {
 
 export function upsertUserSettings(
   userId: string,
-  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay" | "inboundMailToken">>,
+  patch: Partial<Pick<UserSettings, "modelTier" | "instructionOverlay">>,
 ): UserSettings {
   const data = load();
   const current = data.settings.find((row) => row.userId === userId) ?? defaultSettings(userId);
@@ -162,13 +161,6 @@ export function upsertUserSettings(
   data.settings = [...data.settings.filter((row) => row.userId !== userId), next];
   save(data);
   return next;
-}
-
-export function findUserIdByInboundMailToken(token: string): string | null {
-  const normalized = normalizeInboundMailToken(token);
-  if (!normalized) return null;
-  const row = load().settings.find((item) => item.inboundMailToken === normalized);
-  return row?.userId ?? null;
 }
 
 export function listChats(userId: string): ChatRecord[] {

@@ -48,7 +48,6 @@ export type UserSettings = {
   userId: string;
   modelTier: ModelTier;
   instructionOverlay: string;
-  inboundMailToken: string | null;
 };
 
 export type ProfileMemory = {

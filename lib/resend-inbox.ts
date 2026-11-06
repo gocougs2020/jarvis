@@ -3,21 +3,12 @@ import { appConfig, type AppConfig } from "@/app.config";
 import { APP_NAME } from "@/lib/brand";
 import { htmlToText } from "@/lib/email-content";
 import { normalizeEmailAddress } from "@/lib/email-users";
-import {
-  formatInboundMailToken,
-  inboundMailboxAddress,
-  isInboundMailToken,
-  normalizeInboundMailToken,
-} from "@/lib/inbound-mail-token";
-import { getResend, resendConfigured } from "@/lib/resend";
-import { findUserIdByInboundMailToken, getUserSettings } from "@/lib/store";
+import { agentEmailAddress, getResend, resendConfigured } from "@/lib/resend";
 
 /**
- * Resend Inboxes: each user can host their agent address as a Resend Inbox,
- * which stores threads, labels, and drafts. The address carries the user's
- * existing secret token (Inbox addresses cannot use a `+` tag), so it stays
- * unguessable, rotates with the token, and maps back to its owner without a
- * lookup table: `agent-abcde-fghij@example.com`.
+ * Resend Inboxes: the agent address (`RESEND_FROM_EMAIL`) can be hosted as
+ * a Resend Inbox, which stores threads, labels, and drafts. There is one
+ * inbox per deployment; this app is one person's agent.
  */
 
 export class ResendInboxError extends Error {
@@ -44,72 +35,53 @@ function isNotFound(error: unknown): boolean {
   return error instanceof ResendInboxError && error.status === 404;
 }
 
-/** On in app.config.ts, Resend has an API key, and there is a receiving mailbox to derive addresses from. */
+/** On in app.config.ts, Resend has an API key, and the agent address is on a real domain. */
 export function resendInboxAvailable(): boolean {
-  return appConfig.resendInbox.enabled && resendConfigured() && Boolean(inboundMailboxAddress());
+  return appConfig.resendInbox.enabled && resendConfigured() && Boolean(agentEmailAddress());
 }
 
-function splitMailbox(mailbox: string | null): { local: string; domain: string } | null {
-  if (!mailbox) return null;
-  const email = normalizeEmailAddress(mailbox);
-  const at = email.lastIndexOf("@");
-  if (at <= 0) return null;
-  const local = (email.slice(0, at).split("+")[0] ?? "").trim();
-  const domain = email.slice(at + 1).trim();
-  return local && domain ? { local, domain } : null;
-}
-
-/** The user's Resend Inbox address for this token, on the app's receiving mailbox domain. */
-export function resendInboxAddress(
-  token: string,
-  mailbox: string | null = inboundMailboxAddress(),
-): string | null {
-  const parts = splitMailbox(mailbox);
-  if (!parts || !isInboundMailToken(token)) return null;
-  return `${parts.local}-${formatInboundMailToken(token)}@${parts.domain}`;
-}
-
-/** The secret token in a Resend Inbox address, or null when it is not one of this app's. */
-export function inboundTokenFromInboxAddress(
-  address: string,
-  mailbox: string | null = inboundMailboxAddress(),
-): string | null {
-  const parts = splitMailbox(mailbox);
-  if (!parts) return null;
-  const email = normalizeEmailAddress(address);
-  const at = email.lastIndexOf("@");
-  if (at <= 0 || email.slice(at + 1) !== parts.domain) return null;
-  const local = email.slice(0, at);
-  const prefix = `${parts.local}-`;
-  if (!local.startsWith(prefix)) return null;
-  const token = normalizeInboundMailToken(local.slice(prefix.length));
-  return isInboundMailToken(token) ? token : null;
-}
-
-export type UserResendInbox = {
+export type AgentResendInbox = {
   readonly id: string;
   readonly address: string;
   readonly unread: number;
 };
 
-function toUserInbox(inbox: Inbox): UserResendInbox {
+function toAgentInbox(inbox: Inbox): AgentResendInbox {
   return { id: inbox.id, address: inbox.email_address, unread: inbox.unread };
 }
 
-async function userInboxAddress(userId: string): Promise<string | null> {
-  const settings = await getUserSettings(userId);
-  return settings.inboundMailToken ? resendInboxAddress(settings.inboundMailToken) : null;
-}
-
-/** The user's Resend Inbox, or null when they have not turned it on (or it is unavailable). */
-export async function getUserResendInbox(userId: string): Promise<UserResendInbox | null> {
-  if (!resendInboxAvailable()) return null;
-  const address = await userInboxAddress(userId);
-  if (!address) return null;
+/** The Resend inbox on the agent address, or null when there is none (or it is unavailable). */
+export async function getAgentResendInbox(): Promise<AgentResendInbox | null> {
+  const address = agentEmailAddress();
+  if (!resendInboxAvailable() || !address) return null;
   try {
-    return toUserInbox(unwrap(await getResend().inboxes.get(address)));
+    return toAgentInbox(unwrap(await getResend().inboxes.get(address)));
   } catch (error) {
     if (isNotFound(error)) return null;
+    throw error;
+  }
+}
+
+const ACTIVE_CACHE_MS = 60_000;
+let activeCache: { value: boolean; at: number } | undefined;
+
+/** Cached for a minute: the inbound webhook asks this on every message. */
+export async function agentResendInboxActive(now = Date.now()): Promise<boolean> {
+  if (activeCache && now - activeCache.at < ACTIVE_CACHE_MS) return activeCache.value;
+  const value = Boolean(await getAgentResendInbox());
+  activeCache = { value, at: now };
+  return value;
+}
+
+/** True when this inbox id is the one on the agent address. */
+export async function isAgentResendInbox(inboxId: string): Promise<boolean> {
+  const address = agentEmailAddress();
+  if (!address) return false;
+  try {
+    const inbox = unwrap(await getResend().inboxes.get(inboxId));
+    return normalizeEmailAddress(inbox.email_address) === address;
+  } catch (error) {
+    if (isNotFound(error)) return false;
     throw error;
   }
 }
@@ -131,58 +103,42 @@ async function configureTriageAgent(inboxId: string): Promise<void> {
   );
 }
 
-/** Create the user's inbox at their token address (idempotent). */
-export async function ensureUserResendInbox(
-  userId: string,
-  owner?: { email?: string | null; name?: string | null },
-): Promise<UserResendInbox> {
-  if (!resendInboxAvailable()) {
+/** Create the inbox on the agent address (idempotent) and set up Resend's triage agent. */
+export async function ensureAgentResendInbox(): Promise<AgentResendInbox> {
+  const address = agentEmailAddress();
+  if (!resendInboxAvailable() || !address) {
     throw new ResendInboxError("Resend Inboxes are not available on this deployment.");
   }
-  const existing = await getUserResendInbox(userId);
+  const existing = await getAgentResendInbox();
   if (existing) return existing;
-  const address = await userInboxAddress(userId);
-  if (!address) throw new ResendInboxError("No agent address is set for this account.");
-  const label = owner?.name?.trim() || owner?.email?.trim() || userId;
   const created = unwrap(
     await getResend().inboxes.create({
       emailAddress: address,
       fromName: APP_NAME.replace(/[:<>\r\n]/g, "").slice(0, 78),
-      name: `${APP_NAME} · ${label}`.slice(0, 64),
+      name: APP_NAME.slice(0, 64),
     }),
   );
+  activeCache = undefined;
   try {
     await configureTriageAgent(created.id);
   } catch (error) {
-    // The inbox works without triage; Settings can be retried later.
+    // The inbox works without triage; it can be set up in the Resend dashboard.
     console.error("[resend-inbox] triage agent setup failed", error);
   }
   return { address, id: created.id, unread: 0 };
 }
 
-/** Owner of a Resend Inbox, from the secret token in its address. */
-export async function userIdForResendInbox(inboxId: string): Promise<string | null> {
-  try {
-    const inbox = unwrap(await getResend().inboxes.get(inboxId));
-    const token = inboundTokenFromInboxAddress(inbox.email_address);
-    return token ? await findUserIdByInboundMailToken(token) : null;
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw error;
-  }
-}
-
-/** The user's inbox, or an error the agent can relay. */
-export async function requireUserResendInbox(userId: string): Promise<UserResendInbox> {
+/** The agent's inbox, or an error the agent can relay. */
+export async function requireAgentResendInbox(): Promise<AgentResendInbox> {
   if (!resendInboxAvailable()) {
     throw new ResendInboxError(
       "Resend Inboxes are off for this deployment. Use list_emails and read_email for stored mail.",
     );
   }
-  const inbox = await getUserResendInbox(userId);
+  const inbox = await getAgentResendInbox();
   if (!inbox) {
     throw new ResendInboxError(
-      "The user has not turned on their Resend inbox. They can turn it on in Settings → Inbox. Use list_emails and read_email for stored mail meanwhile.",
+      "The agent address has no Resend inbox yet. Turn it on in Settings → Inbox. Use list_emails and read_email for stored mail meanwhile.",
     );
   }
   return inbox;

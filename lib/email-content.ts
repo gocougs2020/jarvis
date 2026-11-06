@@ -22,6 +22,8 @@ export type ReceivedEmailContent = {
   bodyHtml: string;
   bodyText: string;
   attachments: EmailAttachmentMeta[];
+  /** Message headers, for the sender-authentication check. */
+  headers: Record<string, string> | null;
 };
 
 export function textToHtml(text: string): string {
@@ -96,6 +98,7 @@ export async function fetchReceivedEmailContent(resendEmailId: string): Promise<
     receivedFor: parseAddressList(data.received_for),
     bodyHtml,
     bodyText,
+    headers: data.headers ?? null,
     attachments: (data.attachments ?? []).map((attachment) => ({
       filename: attachment.filename || "attachment",
       contentType: attachment.content_type || "application/octet-stream",

@@ -110,7 +110,7 @@ export function scheduleDispatchMessage(
 ): string {
   const link = reminderSessionLink(options);
   const emailLines = [
-    "Omit `to` on send_email so it goes to the signed-in user's account email. It is sent from their agent address.",
+    "Omit `to` on send_email so it goes to the signed-in user's account email. It is sent from the agent address.",
     "Do not email anyone else. Do not ask questions.",
     link
       ? `Include this session link in the email so they can continue: ${link}`

@@ -1,18 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, CopyIcon, ExternalLinkIcon, InboxIcon, RefreshCwIcon } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { CheckIcon, CopyIcon, ExternalLinkIcon, InboxIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,14 +32,12 @@ async function copyText(value: string): Promise<boolean> {
 
 export function InboundMailSettings({
   inboundMail,
-  onRotated,
+  onChanged,
 }: {
   readonly inboundMail: InboundMailInfo | undefined;
-  readonly onRotated: (next: InboundMailInfo) => void;
+  readonly onChanged: (next: InboundMailInfo) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [rotating, setRotating] = useState(false);
-  const [error, setError] = useState<string>();
   const address = inboundMail?.address ?? "";
 
   return (
@@ -58,103 +45,46 @@ export function InboundMailSettings({
       <CardHeader>
         <CardTitle>Agent address</CardTitle>
         <CardDescription>
-          This is your send and receive address. Mail to it starts a session only when it comes
-          from your signed-in account email. Save it as a contact. Rotate it if it leaks. Workspace
-          notices such as signup verification still use the shared From address.
+          The agent sends and receives at this address. Mail from your account email starts a
+          session when it asks for something and passes your domain&apos;s DMARC check; other mail
+          is filed in Inbox. Set it with <code>RESEND_FROM_EMAIL</code>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {inboundMail && !inboundMail.configured ? (
           <p className="text-muted-foreground text-sm">
-            Set <code>RESEND_FROM_EMAIL</code> or an inbound allowlist so this app can receive mail.
-            Your secret plus-tag is ready and will appear here after inbound is configured.
+            Set <code>RESEND_FROM_EMAIL</code> to an address on a Resend domain with receiving
+            enabled, for example <code>agent@yourdomain.com</code>.
           </p>
         ) : null}
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             readOnly
-            aria-label="Secret agent email address"
+            aria-label="Agent email address"
             className="font-mono text-sm"
-            placeholder="Configure inbound email to see your address"
+            placeholder="Set RESEND_FROM_EMAIL to see the address"
             value={address}
           />
-          <div className="flex gap-2">
-            <Button
-              disabled={!address}
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (!address) return;
-                void copyText(address).then((ok) => {
-                  if (!ok) return;
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1600);
-                });
-              }}
-            >
-              {copied ? <CheckIcon /> : <CopyIcon />}
-              {copied ? "Copied" : "Copy"}
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button disabled={rotating} size="sm" type="button" variant="outline">
-                  <RefreshCwIcon />
-                  Rotate
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Rotate this address?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The current address stops working immediately. Update the contact you saved
-                    before you email the agent again.
-                    {inboundMail?.resendInbox?.active
-                      ? " Your Resend inbox moves to a new address too; the old inbox keeps its threads in Resend until you delete it there."
-                      : ""}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => {
-                      setRotating(true);
-                      setError(undefined);
-                      void fetch("/api/settings/inbound-mail", { method: "POST" })
-                        .then(async (response) => {
-                          const payload = (await response.json().catch(() => ({}))) as {
-                            error?: string;
-                            inboundMail?: InboundMailInfo;
-                          };
-                          if (!response.ok || !payload.inboundMail) {
-                            throw new Error(payload.error || "Unable to rotate this address.");
-                          }
-                          onRotated(payload.inboundMail);
-                        })
-                        .catch((rotateError: unknown) => {
-                          setError(
-                            rotateError instanceof Error
-                              ? rotateError.message
-                              : "Unable to rotate this address.",
-                          );
-                        })
-                        .finally(() => setRotating(false));
-                    }}
-                  >
-                    Rotate address
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+          <Button
+            disabled={!address}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => {
+              if (!address) return;
+              void copyText(address).then((ok) => {
+                if (!ok) return;
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1600);
+              });
+            }}
+          >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
         </div>
-        {error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {error}
-          </p>
-        ) : null}
         {inboundMail?.resendInbox ? (
-          <ResendInboxSection info={inboundMail.resendInbox} onChanged={onRotated} />
+          <ResendInboxSection info={inboundMail.resendInbox} onChanged={onChanged} />
         ) : null}
       </CardContent>
     </Card>
@@ -209,7 +139,7 @@ function ResendInboxSection({
           <p className="text-muted-foreground text-sm">
             Mail to <span className="font-mono text-foreground">{info.address}</span> is kept as
             threads in Resend. Resend&apos;s inbox agent labels new mail and drafts replies, and
-            never sends. Your agent can search, read, reply, and organize these threads; sending
+            never sends. The agent can search, read, reply, and organize these threads; sending
             always asks you first.
           </p>
           <Button asChild size="sm" variant="outline">
@@ -222,15 +152,9 @@ function ResendInboxSection({
       ) : (
         <>
           <p className="text-muted-foreground text-sm">
-            Host your agent address as a Resend inbox
-            {info.address ? (
-              <>
-                {" "}
-                at <span className="font-mono text-foreground">{info.address}</span>
-              </>
-            ) : null}
-            . Resend keeps threads, labels, and drafts, triages new mail, and lets your agent work
-            the inbox. Resend bills inboxes separately from email sending.
+            Host the agent address as a Resend inbox. Resend keeps threads, labels, and drafts,
+            triages new mail, and lets the agent work the inbox. Each Resend account includes a
+            few free inboxes; see Resend pricing beyond that.
           </p>
           <Button disabled={creating || !info.address} onClick={turnOn} size="sm" type="button">
             {creating ? "Turning on…" : "Turn on Resend inbox"}

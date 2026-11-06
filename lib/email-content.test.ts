@@ -110,9 +110,9 @@ describe("fetchReceivedEmailContent", () => {
       data: {
         subject: "Dinner",
         from: "Ada <ada@example.com>",
-        to: ["agent+k7xqm-2n4pw@example.com"],
+        to: ["agent@example.com"],
         cc: null,
-        received_for: ["agent+k7xqm-2n4pw@example.com"],
+        received_for: ["agent@example.com"],
         html: "<p>Table for <strong>two</strong>.</p>",
         text: "Hold a table for two.",
         attachments: [{ filename: "invite.pdf", content_type: "application/pdf", size: 1200 }],

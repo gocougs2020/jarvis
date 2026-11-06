@@ -6,9 +6,9 @@ const mocks = vi.hoisted(() => ({
   persistEmailEmbeddings: vi.fn(),
   classifyEmailAction: vi.fn(),
   findUserById: vi.fn(),
+  inboundMailOwner: vi.fn(),
+  agentResendInboxActive: vi.fn(),
   getEmailByResendId: vi.fn(),
-  findUserIdByInboundMailToken: vi.fn(),
-  getUserSettings: vi.fn(),
   createEmail: vi.fn(),
   updateEmail: vi.fn(),
   getEmail: vi.fn(),
@@ -36,13 +36,17 @@ vi.mock("@/lib/email-classify", () => ({
 
 vi.mock("@/lib/email-users", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email-users")>();
-  return { ...actual, findUserById: mocks.findUserById };
+  return { ...actual, findUserById: mocks.findUserById, inboundMailOwner: mocks.inboundMailOwner };
 });
+
+vi.mock("@/lib/resend-inbox", () => ({
+  agentResendInboxActive: mocks.agentResendInboxActive,
+  getInboxThreadEmail: vi.fn(),
+  isAgentResendInbox: vi.fn(),
+}));
 
 vi.mock("@/lib/store", () => ({
   getEmailByResendId: mocks.getEmailByResendId,
-  findUserIdByInboundMailToken: mocks.findUserIdByInboundMailToken,
-  getUserSettings: mocks.getUserSettings,
   createEmail: mocks.createEmail,
   updateEmail: mocks.updateEmail,
   getEmail: mocks.getEmail,
@@ -56,7 +60,7 @@ vi.mock("@/lib/store", () => ({
 import { ReceivedEmailContentError } from "@/lib/email-content";
 import { processInboundResendEmail } from "@/lib/email-inbox";
 
-const ENV_KEYS = ["RESEND_FROM_EMAIL", "RESEND_INBOUND_ADDRESSES", "RESEND_INBOUND_DOMAINS"] as const;
+const ENV_KEYS = ["RESEND_FROM_EMAIL"] as const;
 const original: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
 const originalAuthUrl = process.env.BETTER_AUTH_URL;
 
@@ -74,7 +78,7 @@ function emailRecord(overrides: Partial<EmailRecord> = {}): EmailRecord {
     userId: "user-1",
     direction: "inbound",
     fromAddress: "ada@example.com",
-    toAddresses: ["agent+k7xqm-2n4pw@example.com"],
+    toAddresses: ["agent@example.com"],
     ccAddresses: [],
     subject: "Dinner",
     bodyText: "Table for two.",
@@ -94,13 +98,14 @@ function emailRecord(overrides: Partial<EmailRecord> = {}): EmailRecord {
 
 beforeEach(() => {
   env().RESEND_FROM_EMAIL = "Jarvis <agent@example.com>";
-  delete env().RESEND_INBOUND_ADDRESSES;
-  delete env().RESEND_INBOUND_DOMAINS;
   delete (process.env as Record<string, string | undefined>).BETTER_AUTH_URL;
 
   mocks.findUserById.mockResolvedValue({ id: "user-1", email: "ada@example.com", name: "Ada" });
-  mocks.findUserIdByInboundMailToken.mockResolvedValue("user-1");
-  mocks.getUserSettings.mockResolvedValue({ inboundMailToken: "k7xqm2n4pw" });
+  mocks.inboundMailOwner.mockImplementation(async (from: string) => ({
+    user: { id: "user-1", email: "ada@example.com", name: "Ada" },
+    fromAccount: from === "ada@example.com",
+  }));
+  mocks.agentResendInboxActive.mockResolvedValue(false);
   mocks.getEmailByResendId.mockResolvedValue(null);
   mocks.createEmail.mockImplementation(async (input: EmailRecord) => emailRecord(input));
   mocks.getEmail.mockResolvedValue(null);
@@ -109,12 +114,13 @@ beforeEach(() => {
   mocks.fetchReceivedEmailContent.mockResolvedValue({
     subject: "Dinner",
     from: "Ada <ada@example.com>",
-    to: ["agent+k7xqm-2n4pw@example.com"],
+    to: ["agent@example.com"],
     cc: [],
-    receivedFor: ["agent+k7xqm-2n4pw@example.com"],
+    receivedFor: ["agent@example.com"],
     bodyHtml: "<p>Table for <strong>two</strong>.</p>",
     bodyText: "Table for two.",
     attachments: [],
+    headers: { "Authentication-Results": "mx.example; dmarc=pass header.from=example.com" },
   });
 });
 
@@ -132,7 +138,7 @@ afterEach(() => {
 const inbound = {
   emailId: "email_123",
   from: "ada@example.com",
-  to: ["agent+k7xqm-2n4pw@example.com"],
+  to: ["agent@example.com"],
   subject: "Dinner",
 };
 
@@ -228,6 +234,31 @@ describe("processInboundResendEmail", () => {
     );
     const [, job] = mocks.createJob.mock.calls.at(-1) ?? [];
     expect(job?.prompt).toMatch(/^\/remind\b/);
+  });
+
+  it("does not start a session when the owner's address fails DMARC", async () => {
+    mocks.classifyEmailAction.mockResolvedValue({ hasActionItem: true, summary: "x", prompt: "x" });
+    mocks.fetchReceivedEmailContent.mockResolvedValue({
+      ...(await mocks.fetchReceivedEmailContent()),
+      headers: { "Authentication-Results": "mx.example; dmarc=fail header.from=example.com" },
+    });
+    await processInboundResendEmail(inbound);
+    expect(mocks.createEmail).toHaveBeenCalled();
+    expect(mocks.classifyEmailAction).not.toHaveBeenCalled();
+    expect(mocks.createChat).not.toHaveBeenCalled();
+  });
+
+  it("ignores mail that is not addressed to the agent", async () => {
+    const stored = await processInboundResendEmail({ ...inbound, to: ["someone@example.com"] });
+    expect(stored).toBeNull();
+    expect(mocks.fetchReceivedEmailContent).not.toHaveBeenCalled();
+  });
+
+  it("leaves agent mail to the inbox webhook when a Resend inbox is on", async () => {
+    mocks.agentResendInboxActive.mockResolvedValue(true);
+    const stored = await processInboundResendEmail(inbound);
+    expect(stored).toBeNull();
+    expect(mocks.createEmail).not.toHaveBeenCalled();
   });
 
   it("does not store an empty body when receiving.get fails", async () => {

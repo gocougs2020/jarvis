@@ -1,25 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { inboundTokenFromInboxAddress, RESEND_ID_PATTERN, resendInboxAddress } from "./resend-inbox";
+import { RESEND_ID_PATTERN } from "./resend-inbox";
+import { agentEmailAddress, isAgentRecipient } from "./resend";
 
-const MAILBOX = "agent@example.com";
-const TOKEN = "abcde23456";
-
-describe("Resend inbox addresses", () => {
-  it("carry the user's secret token without a plus tag", () => {
-    expect(resendInboxAddress(TOKEN, MAILBOX)).toBe("agent-abcde-23456@example.com");
-    expect(resendInboxAddress(TOKEN, "Jarvis+old@example.com")).toBe("jarvis-abcde-23456@example.com");
+describe("agent address", () => {
+  it("comes from RESEND_FROM_EMAIL, display name and case removed", () => {
+    process.env.RESEND_FROM_EMAIL = "Jarvis <Agent@Example.com>";
+    expect(agentEmailAddress()).toBe("agent@example.com");
+    expect(isAgentRecipient(["someone@else.test", "AGENT@example.com"])).toBe(true);
+    expect(isAgentRecipient(["agent+tag@example.com"])).toBe(false);
   });
 
-  it("map back to the token only on this app's mailbox", () => {
-    expect(inboundTokenFromInboxAddress("Agent-ABCDE-23456@example.com", MAILBOX)).toBe(TOKEN);
-    expect(inboundTokenFromInboxAddress("agent-abcde-23456@other.com", MAILBOX)).toBeNull();
-    expect(inboundTokenFromInboxAddress("support-abcde-23456@example.com", MAILBOX)).toBeNull();
-    expect(inboundTokenFromInboxAddress("agent-short@example.com", MAILBOX)).toBeNull();
-  });
-
-  it("needs a valid token and mailbox", () => {
-    expect(resendInboxAddress("not-a-token", MAILBOX)).toBeNull();
-    expect(resendInboxAddress(TOKEN, null)).toBeNull();
+  it("is unset for the Resend sandbox sender", () => {
+    process.env.RESEND_FROM_EMAIL = "onboarding@resend.dev";
+    expect(agentEmailAddress()).toBeNull();
+    delete process.env.RESEND_FROM_EMAIL;
+    expect(agentEmailAddress()).toBeNull();
   });
 });
 

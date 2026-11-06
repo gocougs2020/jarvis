@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/api";
 import { inboundMailPayload } from "@/lib/inbound-mail-payload";
-import { ensureInboundMailToken, upsertUserSettings } from "@/lib/store";
+import { getUserSettings, upsertUserSettings } from "@/lib/store";
 import type { ModelTier } from "@/lib/types";
 
 export async function GET(request: Request) {
   const { session, error } = await requireApiSession(request);
   if (error || !session) return error;
-  const settings = await ensureInboundMailToken(session.user.id);
+  const settings = await getUserSettings(session.user.id);
   return NextResponse.json({
     settings: {
       userId: settings.userId,
       modelTier: settings.modelTier,
       instructionOverlay: settings.instructionOverlay,
     },
-    inboundMail: await inboundMailPayload(session.user.id, settings.inboundMailToken),
+    inboundMail: await inboundMailPayload(),
   });
 }
 
@@ -37,6 +37,6 @@ export async function PATCH(request: Request) {
       modelTier: settings.modelTier,
       instructionOverlay: settings.instructionOverlay,
     },
-    inboundMail: await inboundMailPayload(session.user.id, settings.inboundMailToken),
+    inboundMail: await inboundMailPayload(),
   });
 }

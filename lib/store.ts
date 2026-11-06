@@ -1,5 +1,4 @@
 import { ensureNeonAuthSchema, hasNeon } from "@/lib/db";
-import { generateInboundMailToken } from "@/lib/inbound-mail-token";
 import * as jsonStore from "@/lib/store-json";
 import * as pgStore from "@/lib/store-pg";
 
@@ -31,26 +30,6 @@ function delegate<K extends StoreMethod>(name: K): Async<Store[K]> {
 
 export const getUserSettings = delegate("getUserSettings");
 export const upsertUserSettings = delegate("upsertUserSettings");
-export const findUserIdByInboundMailToken = delegate("findUserIdByInboundMailToken");
-
-async function issueUniqueInboundMailToken(): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const token = generateInboundMailToken();
-    const existing = await findUserIdByInboundMailToken(token);
-    if (!existing) return token;
-  }
-  throw new Error("Unable to issue an inbound mail token.");
-}
-
-export async function ensureInboundMailToken(userId: string) {
-  const current = await getUserSettings(userId);
-  if (current.inboundMailToken) return current;
-  return upsertUserSettings(userId, { inboundMailToken: await issueUniqueInboundMailToken() });
-}
-
-export async function rotateInboundMailToken(userId: string) {
-  return upsertUserSettings(userId, { inboundMailToken: await issueUniqueInboundMailToken() });
-}
 
 export const listChats = delegate("listChats");
 export const listAccountChats = delegate("listAccountChats");

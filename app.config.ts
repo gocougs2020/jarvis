@@ -54,11 +54,11 @@ export type AppConfig = {
   };
   /**
    * Resend Inboxes (https://resend.com/docs/dashboard/inboxes/introduction).
-   * Each user can turn on a hosted inbox for their agent address from
+   * Turn on a hosted inbox for the agent address (`RESEND_FROM_EMAIL`) from
    * Settings. Resend then stores threads, labels, and drafts, its built-in
    * inbox agent triages new mail, and the agent works the inbox with the
-   * `inbox_*` tools. Resend bills inboxes separately, so nothing is created
-   * until a user turns it on. Needs a receiving domain (see README).
+   * `inbox_*` tools. Nothing is created until you turn it on. Needs a
+   * receiving domain (see README).
    */
   resendInbox: {
     /** When false, Settings hides the option and the `inbox_*` tools report it is off. */
@@ -141,6 +141,15 @@ export type AppConfig = {
      * deny-all, so a hostname list means deny-all there.
      */
     sandboxNetwork: "deny-all" | "allow-all" | readonly string[];
+    /**
+     * Mail to the agent address starts an unattended session only when it
+     * comes from an account's own email. The address is not secret and From
+     * is easy to forge, so by default the message must also pass DMARC for
+     * that domain (per the receiving server's Authentication-Results). Turn
+     * this off only if your mail never carries that header, and accept that
+     * anyone who forges your From can then run the agent.
+     */
+    emailSessionsRequireDmarc: boolean;
   };
   voice: {
     /** Voice for `models.speech`. Grok TTS voices: ara, eve, leo, rex, sal. */
@@ -323,6 +332,7 @@ export const appConfig = {
 
   security: {
     sandboxNetwork: "deny-all",
+    emailSessionsRequireDmarc: true,
   },
 
   voice: {

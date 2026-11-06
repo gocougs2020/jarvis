@@ -4,10 +4,8 @@ import { textToHtml } from "@/lib/email-content";
 import { persistEmailEmbeddings } from "@/lib/email-embeddings";
 import { chooseOutboundSender } from "@/lib/email-sender";
 import { findUserById, parseAddressList } from "@/lib/email-users";
-import { composeInboundMailAddress, inboundMailboxAddress } from "@/lib/inbound-mail-token";
 import { getResend, resendConfigured } from "@/lib/resend";
-import { getUserResendInbox } from "@/lib/resend-inbox";
-import { createEmail, ensureInboundMailToken, getDocument, updateEmail } from "@/lib/store";
+import { createEmail, getDocument, updateEmail } from "@/lib/store";
 import type { EmailAttachmentMeta, EmailRecord } from "@/lib/types";
 
 export type SendEmailInput = {
@@ -43,20 +41,6 @@ async function documentAttachments(
   return attachments;
 }
 
-async function userPrivateAgentAddress(userId: string): Promise<string | null> {
-  const settings = await ensureInboundMailToken(userId);
-  // With a Resend inbox on, mail to the owner comes from it, so their reply
-  // lands as a thread there (and still starts a session).
-  const inbox = await getUserResendInbox(userId).catch(() => null);
-  if (inbox) return inbox.address;
-  return settings.inboundMailToken ? composeInboundMailAddress(settings.inboundMailToken) : null;
-}
-
-function workspaceMailbox(): string | null {
-  const configured = process.env.RESEND_FROM_EMAIL?.trim();
-  return configured || inboundMailboxAddress();
-}
-
 export async function sendUserEmail(input: SendEmailInput): Promise<EmailRecord> {
   if (!resendConfigured()) {
     throw new Error("Resend is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.");
@@ -68,14 +52,12 @@ export async function sendUserEmail(input: SendEmailInput): Promise<EmailRecord>
   }
 
   const owner = await findUserById(input.userId);
-  const privateAddress = await userPrivateAgentAddress(input.userId);
   const sender = chooseOutboundSender({
     appName: APP_NAME,
     ownerEmail: owner?.email,
     ownerName: owner?.name,
     recipients: [...to, ...cc],
-    privateAddress,
-    workspaceAddress: workspaceMailbox(),
+    agentAddress: process.env.RESEND_FROM_EMAIL?.trim() || null,
   });
   const from = sender.from;
 

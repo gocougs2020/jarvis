@@ -8,6 +8,16 @@ The matching git tag is the baseline to sync against. Bump `package.json` when y
 
 ## Unreleased
 
+Email: one agent address
+- The agent has one address, `RESEND_FROM_EMAIL` (for example `agent@yourdomain.com`). It sends from it and receives at it. Per-user plus-addresses (`agent+token@…`), address rotation, and `RESEND_INBOUND_ADDRESSES` / `RESEND_INBOUND_DOMAINS` are gone. **Remove those two variables**, and point anything that mailed an old plus-address at the agent address.
+- Inbound mail is filed for the account whose email sent it, or for the workspace owner (the first account).
+- Because the address is no longer secret, mail starts an unattended session only when From is an account email **and** the receiving server reports a DMARC pass for that domain. New `security.emailSessionsRequireDmarc` in `app.config.ts` (default `true`). **Add it when you merge** if you keep your own config.
+- The `user_settings.inbound_mail_token` column is no longer used. Existing databases keep it; it is harmless.
+
+Instant first reply and Resend inbox
+- New `quickReply` block, `models.quickReply`, and `models.reasoning.quickReply` in `app.config.ts`: the first prompt of a chat gets an instant answer or a one-line hand-off before the agent starts. See README → Instant first reply.
+- New `resendInbox` block in `app.config.ts`: host the agent address as a Resend inbox (Settings → Inbox), triaged by Resend's inbox agent, with new `inbox_threads`, `inbox_thread`, `inbox_reply`, and `inbox_organize` tools. Add `inbox.email.received` to the Resend webhook. `resend` is upgraded to 6.37.
+
 Cost and speed
 - The Neon schema bootstrap runs once per schema change instead of on every cold start (~85 sequential DDL round trips and a backfill `UPDATE` each time). A cold start now reads one row from `app_schema_version`.
 - Chat transcripts are saved as checkpoints (every few seconds while streaming, once when the turn settles), writing only changed rows. Before, every streamed token was its own request, database write, and full re-read of the chat to recount usage. Runs of streaming deltas are collapsed before they are stored or loaded. Older chats are compacted on their next turn.
