@@ -2,7 +2,8 @@ import { generateText, Output, type ModelMessage } from "ai";
 import type { AgentModelOptionsDefinition } from "eve";
 import { defineState } from "eve/context";
 import { z } from "zod";
-import { appConfig } from "../../app.config";
+import { appConfig, type ReasoningEffort } from "../../app.config";
+import { modelWithReasoning, outputTokenBudget } from "../../lib/reasoning";
 import { recordGenerateTextUsage } from "../../lib/record-usage";
 import { resolveChatForEveSession } from "../../lib/session-memory";
 import { getUserSettings } from "../../lib/store";
@@ -12,6 +13,12 @@ export const FAST_MODEL = appConfig.models.chatFast;
 export const LOW_MODEL = appConfig.models.chatLow;
 export const HIGH_MODEL = appConfig.models.chatHigh;
 export const COMPACTION_MODEL = appConfig.models.compaction;
+const REASONING = appConfig.models.reasoning;
+
+/** Compaction model wrapped so its summary calls use `reasoning.compaction`. */
+export function compactionModel() {
+  return modelWithReasoning(COMPACTION_MODEL, REASONING.compaction);
+}
 
 /** Locked after the first prompt of a session so later turns reuse the same model cache. */
 export type SessionChatRoute = "fast" | "reason" | "complex";
@@ -23,6 +30,8 @@ const routeSchema = z.object({
 });
 
 const ASSESS_PROMPT_LIMIT = 2_000;
+/** Routing blocks the first token, so it still gets a deadline; on timeout the session uses `reason`. */
+const ASSESS_TIMEOUT_MS = 15_000;
 
 const ASSESS_SYSTEM = [
   "Classify a user prompt for chat-model routing. Reply with one route only.",
@@ -33,31 +42,45 @@ const ASSESS_SYSTEM = [
 ].join(" ");
 
 /**
- * Provider options that turn on deeper reasoning for the "reason" and
- * "complex" routes. eve's dynamic model selection only forwards
- * providerOptions, so each provider's own knob is listed here. A provider
- * that is not listed runs with its default reasoning, so swapping
- * `models.chatLow` / `chatHigh` in app.config.ts never breaks a turn.
+ * Provider options that set a chat route's reasoning effort. eve's dynamic
+ * model selection only forwards providerOptions (not the AI SDK `reasoning`
+ * setting), so each provider's own knob is listed here. A provider that is
+ * not listed runs with its default reasoning, so swapping `models.chat*` in
+ * app.config.ts never breaks a turn.
  */
-export function highReasoningProviderOptions(
+export function reasoningProviderOptions(
   modelId: string,
+  effort: ReasoningEffort,
 ): AgentModelOptionsDefinition["providerOptions"] {
+  if (effort === "provider-default") return undefined;
   const provider = modelId.split("/")[0]?.toLowerCase();
   switch (provider) {
     case "openai":
-      return { openai: { reasoningEffort: "high" } };
-    case "anthropic":
-      return { anthropic: { thinking: { type: "enabled", budgetTokens: 16_000 } } };
+      return { openai: { reasoningEffort: effort } };
+    case "anthropic": {
+      if (effort === "none") return { anthropic: { thinking: { type: "disabled" } } };
+      return { anthropic: { thinking: { type: "enabled", budgetTokens: ANTHROPIC_BUDGETS[effort] } } };
+    }
     case "xai":
     case "spacexai":
-      return { xai: { reasoningEffort: "high" } };
+      // xAI only accepts low and high.
+      if (effort === "none") return undefined;
+      return { xai: { reasoningEffort: effort === "minimal" || effort === "low" ? "low" : "high" } };
     default:
       return undefined;
   }
 }
 
-export function modelSelection(modelId: string, route: SessionChatRoute = "fast") {
-  const providerOptions = route === "fast" ? undefined : highReasoningProviderOptions(modelId);
+const ANTHROPIC_BUDGETS: Readonly<Record<"minimal" | "low" | "medium" | "high" | "xhigh", number>> = {
+  minimal: 1_024,
+  low: 4_000,
+  medium: 8_000,
+  high: 16_000,
+  xhigh: 32_000,
+};
+
+export function modelSelection(modelId: string, effort: ReasoningEffort) {
+  const providerOptions = reasoningProviderOptions(modelId, effort);
   return {
     model: modelId,
     modelContextWindowTokens: turnContextWindowTokens(modelId),
@@ -66,9 +89,9 @@ export function modelSelection(modelId: string, route: SessionChatRoute = "fast"
 }
 
 export function modelSelectionForRoute(route: SessionChatRoute) {
-  if (route === "complex") return modelSelection(HIGH_MODEL, route);
-  if (route === "reason") return modelSelection(LOW_MODEL, route);
-  return modelSelection(FAST_MODEL, route);
+  if (route === "complex") return modelSelection(HIGH_MODEL, REASONING.chatHigh);
+  if (route === "reason") return modelSelection(LOW_MODEL, REASONING.chatLow);
+  return modelSelection(FAST_MODEL, REASONING.chatFast);
 }
 
 export async function settingsForPrincipal(principalId: string | undefined) {
@@ -115,13 +138,13 @@ export async function assessPromptRoute(
 
   try {
     const result = await generateText({
-      maxOutputTokens: 40,
+      maxOutputTokens: outputTokenBudget(REASONING.routing, 40),
       model: FAST_MODEL,
       output: Output.object({ schema: routeSchema }),
       prompt,
-      reasoning: "none",
+      reasoning: REASONING.routing,
       system: ASSESS_SYSTEM,
-      timeout: 4_000,
+      timeout: ASSESS_TIMEOUT_MS,
     });
     void (attribution ?? Promise.resolve(undefined))
       .catch(() => undefined)

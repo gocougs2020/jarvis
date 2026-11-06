@@ -1,5 +1,6 @@
 import { defineAgent, defineDynamic } from "eve";
-import { COMPACTION_MODEL, resolveSessionModelSelection } from "./lib/models";
+import { modelContextWindowTokens } from "../lib/token-budget";
+import { COMPACTION_MODEL, compactionModel, resolveSessionModelSelection } from "./lib/models";
 
 function attributionFrom(ctx: {
   readonly session: {
@@ -25,7 +26,10 @@ function attributionFrom(ctx: {
 export default defineAgent({
   compaction: {
     // Window is already min(256k, 90% of model capacity); compact when that cap is reached.
-    model: COMPACTION_MODEL,
+    // Wrapped so summaries run at `models.reasoning.compaction`. Pass the window
+    // explicitly rather than rely on eve resolving it for a model object.
+    model: compactionModel(),
+    modelContextWindowTokens: modelContextWindowTokens(COMPACTION_MODEL),
     thresholdPercent: 1,
   },
   build: {

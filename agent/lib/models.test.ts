@@ -1,23 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { highReasoningProviderOptions, modelSelection } from "./models";
+import { appConfig } from "../../app.config";
+import { modelSelectionForRoute, reasoningProviderOptions, modelSelection } from "./models";
 
-describe("highReasoningProviderOptions", () => {
-  it("uses each provider's own reasoning knob", () => {
-    expect(highReasoningProviderOptions("openai/gpt-6-luna")).toEqual({
-      openai: { reasoningEffort: "high" },
+describe("reasoningProviderOptions", () => {
+  it("uses each provider's own reasoning knob at the requested effort", () => {
+    expect(reasoningProviderOptions("openai/gpt-6-luna", "medium")).toEqual({
+      openai: { reasoningEffort: "medium" },
     });
-    expect(highReasoningProviderOptions("anthropic/claude-sonnet-5.5")).toMatchObject({
-      anthropic: { thinking: { type: "enabled" } },
+    expect(reasoningProviderOptions("anthropic/claude-sonnet-5.5", "high")).toEqual({
+      anthropic: { thinking: { type: "enabled", budgetTokens: 16_000 } },
+    });
+    expect(reasoningProviderOptions("xai/grok-5", "medium")).toEqual({
+      xai: { reasoningEffort: "high" },
     });
   });
 
-  it("leaves unknown providers on their defaults", () => {
-    expect(highReasoningProviderOptions("mistral/large")).toBeUndefined();
-    expect(modelSelection("mistral/large", "complex")).not.toHaveProperty("modelOptions");
+  it("leaves unknown providers and provider-default on their defaults", () => {
+    expect(reasoningProviderOptions("mistral/large", "high")).toBeUndefined();
+    expect(reasoningProviderOptions("openai/gpt-6-luna", "provider-default")).toBeUndefined();
+    expect(modelSelection("mistral/large", "high")).not.toHaveProperty("modelOptions");
   });
+});
 
-  it("never forces reasoning on the fast route", () => {
-    expect(modelSelection("openai/gpt-6-luna-fast", "fast")).not.toHaveProperty("modelOptions");
+describe("modelSelectionForRoute", () => {
+  it("pairs each chat route with its configured model and effort", () => {
+    const { models } = appConfig;
+    const cases = [
+      ["fast", models.chatFast, models.reasoning.chatFast],
+      ["reason", models.chatLow, models.reasoning.chatLow],
+      ["complex", models.chatHigh, models.reasoning.chatHigh],
+    ] as const;
+    for (const [route, model, effort] of cases) {
+      expect(modelSelectionForRoute(route)).toMatchObject({
+        model,
+        modelOptions: { providerOptions: reasoningProviderOptions(model, effort) },
+      });
+    }
   });
 });
 
