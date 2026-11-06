@@ -264,6 +264,7 @@ Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a ses
 | Key | Used for | Default |
 | --- | --- | --- |
 | `chatFast` | Quick answers, first-prompt routing, inbound email triage, and `web_search` | `openai/gpt-6-luna` |
+| `quickReply` | Instant first reply before the agent starts (see below) | `openai/gpt-6-luna` |
 | `chatLow` | First prompts that need analysis or thinking | `openai/gpt-6-luna` |
 | `chatHigh` | First prompts that look unusually complex | `openai/gpt-6.1-sol` |
 | `instructions` | Generating instruction overlays and custom skills | `openai/gpt-6-luna` |
@@ -285,6 +286,7 @@ Any AI Gateway model ID works, including other providers (`anthropic/…`, `goog
 | `chatLow` | `reason` chat route | `high` |
 | `chatHigh` | `complex` chat route | `medium` |
 | `routing` | First-prompt route classification | `low` |
+| `quickReply` | Instant first reply. Keep it `none` or `minimal`; reasoning delays the first token | `none` |
 | `emailClassification` | Inbound email action items | `medium` |
 | `webSearch` | `web_search` query call | `medium` |
 | `sessionTitle` | Recents list titles and descriptions | `low` |
@@ -294,6 +296,43 @@ Any AI Gateway model ID works, including other providers (`anthropic/…`, `goog
 Compaction has no entry: eve has no compaction reasoning setting when the chat model is chosen dynamically, so checkpoints run at the provider's default effort. Chat routes pass the effort through each provider's own option where `agent/lib/models.ts` knows it (OpenAI, Anthropic, xAI); other providers run with their defaults. Calls that reason get extra `maxOutputTokens` headroom (`lib/reasoning.ts`) so thinking does not crowd out the answer. Routing and HyDE block the first token of a turn, so more effort there means a slower start.
 
 If you change a chat model ID, add its context window under `models.contextWindows` (tokens). Unknown IDs fall back to `1_050_000`. Compaction and the session context chip use `min(256_000, 90% of that catalog size)` so a million-token model does not fill its full window.
+
+### Instant first reply
+
+```ts
+quickReply: {
+  enabled: true,
+  decisionTimeoutMs: 5_000,
+  maxAnswerTokens: 1_200,
+},
+```
+
+Starting an agent session (routing call, related-session recall, the sandbox, a reasoning model) takes a few seconds before the first token. So the first prompt of a new chat goes to `POST /api/quick` first: one streaming call to `models.quickReply` with no tools that starts with a decision line.
+
+- **Answer** — greetings, the date or time (the browser sends its time zone), simple facts, arithmetic, short rewrites. The reply streams straight into the chat and is saved to the chat log like any turn; no agent session starts. A follow-up in that chat goes through the same layer, with the earlier quick turns as history.
+- **Hand off** — anything that needs tools, files, email, memory, live data, or real work. The chat shows a one-line acknowledgment ("Checking your inbox for the Acme invoice…") while the agent starts. The layer also picks the agent's `fast` / `reason` / `complex` route and passes it as a short-lived signed hint (`x-jarvis-route-hint`, keyed from `BETTER_AUTH_SECRET`), so the agent skips its own routing call. The agent's first turn gets any earlier quick answers as client context.
+
+Prompts with attachments or a `/skill` mention, and every prompt once an agent session exists, skip the layer. If it errors, or does not decide within `decisionTimeoutMs`, the prompt goes to the agent as if the layer were not there. Set `enabled: false` to turn it off. Its cost shows as **Instant replies** on the Usage page.
+
+### Resend inbox
+
+```ts
+resendInbox: {
+  enabled: true,
+  triageInstructions: "This is a personal assistant's inbox. Label every new thread…",
+  triageActions: ["add_labels", "draft_reply", "archive", "mark_as_spam"],
+  triageTone: "concise_casual",
+},
+```
+
+With [Resend Inboxes](https://resend.com/docs/dashboard/inboxes/introduction), each user can turn on a hosted inbox for their agent address under **Settings → Inbox**. Resend then keeps the mail as threads with labels, folders, and drafts. Inbox addresses cannot use a `+` tag, so the inbox lives at `<mailbox>-<secret token>@<domain>` (for example `agent-k7xqm-2n4pw@yourdomain.com`): still unguessable, and rotating the address in Settings moves the inbox to a new one.
+
+- **Triage** — on creation, the app configures Resend's built-in inbox agent with `triageInstructions`, `triageActions`, and `triageTone`. It labels new threads and saves reply drafts; it never sends. Empty instructions leave it off.
+- **Agent tools** — `inbox_threads` (list or full-text search, filter by folder, label, unread), `inbox_thread` (read messages and pending drafts), `inbox_reply` (save a reply draft, or send a reply or an existing draft in the thread — sending always needs approval), and `inbox_organize` (archive, mark read, add or remove labels).
+- **Inbound** — add `inbox.email.received` to the Resend webhook that already sends `email.received` to `/api/webhooks/resend`. New mail is stored for search and the Inbox page like any inbound email. As with the plus-address, only mail from the user's own account email can start an unattended session, and that session is told the thread id so it replies in the thread.
+- **Outbound** — mail the agent sends to the account owner comes from the inbox address, so the owner's reply lands in the same inbox.
+
+Resend bills inboxes separately from sending, so nothing is created until a user turns it on. It needs a domain with receiving enabled (the same one as `RESEND_FROM_EMAIL` or the inbound allowlist). Set `enabled: false` to hide it. The plus-address keeps working either way.
 
 ### Voice mode
 
@@ -394,7 +433,7 @@ ALLOWED_ACCOUNT_USAGE_EMAILS=ada@agency.com
 | `DATABASE_URL` | Production | Neon Postgres. Unset locally → SQLite + `.data/app.json` |
 | `BLOB_READ_WRITE_TOKEN` | Production | Vercel Blob for private files and file memory. Local fallback is `.data/blobs/` |
 | `RESEND_API_KEY` | Signup + Inbox | Verification emails on signup, plus agent send/receive. Get a key at [resend.com/api-keys](https://resend.com/api-keys). Required for production signup. Local `npm run dev` without it prints the verification URL in the server log. |
-| `RESEND_WEBHOOK_SECRET` | For inbound | Signing secret from Resend → Webhooks (`email.received`) |
+| `RESEND_WEBHOOK_SECRET` | For inbound | Signing secret from Resend → Webhooks (`email.received`, plus `inbox.email.received` for [Resend inboxes](#resend-inbox)) |
 | `RESEND_FROM_EMAIL` | Signup + mailbox | Verified workspace `From` for signup and other notices, e.g. `Jarvis <agent@yourdomain.com>`. Each user's send/receive address is a plus-tag on this mailbox (or the inbound allowlist). |
 | `RESEND_INBOUND_ADDRESSES` | Optional | Extra mailboxes that can host user plus-addresses, comma-separated. |
 | `RESEND_INBOUND_DOMAINS` | Optional | Extra inbound domains, comma-separated. A plus-tagged user address on those domains is accepted. |
@@ -426,6 +465,7 @@ HTML responses send a Content-Security-Policy plus `X-Content-Type-Options`, `Re
 ### Agent safety defaults
 
 - `send_email` asks for approval in the session before it sends, except on an unattended reminder to the account owner with no `cc`. Approve or deny in the chat.
+- `inbox_reply` saves drafts freely but asks for approval before it sends a reply or a draft from the Resend inbox. Resend's own inbox agent only labels, archives, and drafts; it never sends.
 - The agent's sandbox (`bash`) has no outbound network by default (`security.sandboxNetwork` in `app.config.ts`). Web access goes through `web_search` and `web_fetch`, which run in the app.
 - Files are served inline only for images, PDF, plain text, Markdown, CSV, and JSON, under a sandboxing CSP. Everything else downloads.
 - An eve session that is recorded on another user's chat cannot be continued or streamed by someone else.
@@ -452,7 +492,7 @@ After a content-only instructions or skill change, restart `npm run dev` (or red
 ## Project layout
 
 ```
-app.config.ts          # Brand, home copy, skills, models, in-app setup flag
+app.config.ts          # Brand, home copy, quick reply, Resend inbox, skills, models, in-app setup flag
 app/                   # Next.js App Router (chat, files, inbox, settings, auth)
 agent/                 # eve agent: instructions, tools, skills, connections
 lib/                   # Shared store, files, auth, helpers

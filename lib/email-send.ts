@@ -6,6 +6,7 @@ import { chooseOutboundSender } from "@/lib/email-sender";
 import { findUserById, parseAddressList } from "@/lib/email-users";
 import { composeInboundMailAddress, inboundMailboxAddress } from "@/lib/inbound-mail-token";
 import { getResend, resendConfigured } from "@/lib/resend";
+import { getUserResendInbox } from "@/lib/resend-inbox";
 import { createEmail, ensureInboundMailToken, getDocument, updateEmail } from "@/lib/store";
 import type { EmailAttachmentMeta, EmailRecord } from "@/lib/types";
 
@@ -44,6 +45,10 @@ async function documentAttachments(
 
 async function userPrivateAgentAddress(userId: string): Promise<string | null> {
   const settings = await ensureInboundMailToken(userId);
+  // With a Resend inbox on, mail to the owner comes from it, so their reply
+  // lands as a thread there (and still starts a session).
+  const inbox = await getUserResendInbox(userId).catch(() => null);
+  if (inbox) return inbox.address;
   return settings.inboundMailToken ? composeInboundMailAddress(settings.inboundMailToken) : null;
 }
 

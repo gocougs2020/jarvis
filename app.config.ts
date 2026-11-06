@@ -37,9 +37,46 @@ export type AppConfig = {
     promptPlaceholder: string;
     followUpPlaceholder: string;
   };
+  /**
+   * Instant first reply. Before an agent session starts, one fast model call
+   * reads the first prompt and either answers it directly (greetings, the
+   * date, simple facts) or hands it to the agent with a one-line
+   * acknowledgment and a model route, so text shows up right away and the
+   * agent skips its own routing call.
+   */
+  quickReply: {
+    /** When false, every prompt goes straight to the agent. */
+    enabled: boolean;
+    /** Give up waiting for the answer-or-hand-off decision after this long and start the agent. */
+    decisionTimeoutMs: number;
+    /** Cap on a direct answer. Longer work belongs to the agent. */
+    maxAnswerTokens: number;
+  };
+  /**
+   * Resend Inboxes (https://resend.com/docs/dashboard/inboxes/introduction).
+   * Each user can turn on a hosted inbox for their agent address from
+   * Settings. Resend then stores threads, labels, and drafts, its built-in
+   * inbox agent triages new mail, and the agent works the inbox with the
+   * `inbox_*` tools. Resend bills inboxes separately, so nothing is created
+   * until a user turns it on. Needs a receiving domain (see README).
+   */
+  resendInbox: {
+    /** When false, Settings hides the option and the `inbox_*` tools report it is off. */
+    enabled: boolean;
+    /**
+     * Instructions for Resend's inbox agent, which acts on each new email.
+     * It never sends: replies are saved as drafts for review. Empty turns it off.
+     */
+    triageInstructions: string;
+    /** What Resend's inbox agent may do. It never sends mail on its own. */
+    triageActions: readonly ("draft_reply" | "add_labels" | "archive" | "mark_as_spam")[];
+    triageTone: "concise_professional" | "concise_casual" | "expanded_professional" | "expanded_casual";
+  };
   models: {
     /** Chat model for simple first prompts; also first-prompt routing, email triage, and web search. */
     chatFast: string;
+    /** Instant first reply (`quickReply`). Pick a low-latency model. */
+    quickReply: string;
     /** Chat model when the first prompt needs analysis or thinking. */
     chatLow: string;
     /** Chat model when the first prompt is unusually complex. */
@@ -66,6 +103,8 @@ export type AppConfig = {
       chatHigh: ReasoningEffort;
       /** First-prompt route classification (runs on `chatFast`). */
       routing: ReasoningEffort;
+      /** Instant first reply. Keep it at `none` or `minimal`: reasoning delays the first token. */
+      quickReply: ReasoningEffort;
       /** Inbound email action-item classification (runs on `chatFast`). */
       emailClassification: ReasoningEffort;
       /** `web_search` query call (runs on `chatFast`). */
@@ -131,8 +170,28 @@ export const appConfig = {
     followUpPlaceholder: "Ask a follow-up…",
   },
 
+  quickReply: {
+    enabled: true,
+    decisionTimeoutMs: 5_000,
+    maxAnswerTokens: 1_200,
+  },
+
+  resendInbox: {
+    enabled: true,
+    triageInstructions: [
+      "This is a personal assistant's inbox. Label every new thread with exactly one of:",
+      "Needs reply (a person is waiting on an answer), Action (a task, deadline, bill, or appointment),",
+      "FYI (worth reading, nothing to do), Receipts (orders, invoices, confirmations), or Newsletter (bulk or marketing).",
+      "Draft a short reply only for Needs reply threads, and only when the answer is clear from the thread.",
+      "Archive Newsletter threads. Mark obvious scams and phishing as spam.",
+    ].join(" "),
+    triageActions: ["add_labels", "draft_reply", "archive", "mark_as_spam"],
+    triageTone: "concise_casual",
+  },
+
   models: {
     chatFast: "openai/gpt-6-luna",
+    quickReply: "openai/gpt-6-luna",
     chatLow: "openai/gpt-6-luna",
     chatHigh: "openai/gpt-6.1-sol",
     instructions: "openai/gpt-6-luna",
@@ -152,6 +211,7 @@ export const appConfig = {
       chatLow: "high",
       chatHigh: "medium",
       routing: "low",
+      quickReply: "none",
       emailClassification: "medium",
       webSearch: "medium",
       sessionTitle: "low",

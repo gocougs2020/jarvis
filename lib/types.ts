@@ -272,6 +272,7 @@ export const USAGE_PURPOSES = [
   "chat",
   "compaction",
   "routing",
+  "quick_reply",
   "session_title",
   "session_memory",
   "embeddings",

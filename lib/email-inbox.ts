@@ -6,7 +6,12 @@ import {
   normalizeEmailBodies,
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
-import { findUserById, normalizeEmailAddress, parseAddressList } from "@/lib/email-users";
+import {
+  findUserById,
+  fromMatchesAccount,
+  normalizeEmailAddress,
+  parseAddressList,
+} from "@/lib/email-users";
 import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import {
   extractInboundMailToken,
@@ -29,6 +34,7 @@ import {
   updateChat,
   updateEmail,
 } from "@/lib/store";
+import { getInboxThreadEmail, userIdForResendInbox } from "@/lib/resend-inbox";
 import { remindFollowThroughPrompt } from "@/lib/schedule-prompt";
 import { runWithUsageScope } from "@/lib/usage-scope";
 import type { EmailDirection, EmailRecord, EmailSearchHit } from "@/lib/types";
@@ -272,6 +278,11 @@ async function maybeStartInboundActionSession(email: EmailRecord, recipients: st
     return;
   }
 
+  await startActionSessionIfRequested(email);
+}
+
+/** Classify an authorized email and start a session when it asks for something. */
+async function startActionSessionIfRequested(email: EmailRecord, threadNote?: string) {
   const action = await classifyEmailAction(email);
   if (!action.hasActionItem) return;
 
@@ -285,7 +296,7 @@ async function maybeStartInboundActionSession(email: EmailRecord, recipients: st
     summary: action.summary || action.prompt || withAction.actionSummary || "",
     prompt: action.prompt || action.summary || "Complete the request in this email.",
   });
-  await startEmailActionSession(withAction, prompt);
+  await startEmailActionSession(withAction, threadNote ? `${prompt}\n${threadNote}` : prompt);
 }
 
 export async function processInboundResendEmail(eventData: InboundEmailPayload): Promise<EmailRecord | null> {
@@ -354,5 +365,77 @@ export async function processInboundResendEmail(eventData: InboundEmailPayload):
   }
   await persistEmailEmbeddings(email);
   await maybeStartInboundActionSession(email, recipients, fromAddress);
+  return (await getEmail(owner.id, email.id)) ?? email;
+}
+
+export type InboxEmailReceivedPayload = {
+  inboxId: string;
+  threadId: string;
+  emailId: string;
+  direction?: "inbound" | "outbound";
+};
+
+/**
+ * `inbox.email.received` from a Resend Inbox. The inbox address carries the
+ * owner's secret token, so the inbox maps to its user. Mail is stored like
+ * any inbound email (search, embeddings, the Inbox page). As with the plus
+ * address, only mail from the owner's own account email can start an
+ * unattended session; Resend's inbox agent triages everything else.
+ */
+export async function processInboxEmailReceived(
+  payload: InboxEmailReceivedPayload,
+): Promise<EmailRecord | null> {
+  if (payload.direction === "outbound") return null;
+  const existing = await getEmailByResendId(payload.emailId);
+  if (existing) return existing;
+
+  const userId = await userIdForResendInbox(payload.inboxId);
+  const owner = userId ? await findUserById(userId) : null;
+  if (!owner) {
+    console.info("[email] inbox mail ignored; no matching user", { inboxId: payload.inboxId });
+    return null;
+  }
+
+  const message = await getInboxThreadEmail(payload.inboxId, payload.threadId, payload.emailId);
+  if (message.direction === "outbound") return null;
+  const bodies = normalizeEmailBodies({ html: message.html ?? "", text: message.text ?? "" });
+  const fromAddress = normalizeEmailAddress(message.from);
+
+  let email: EmailRecord;
+  try {
+    email = await createEmail({
+      userId: owner.id,
+      direction: "inbound",
+      fromAddress: fromAddress || "unknown",
+      toAddresses: parseAddressList(message.to),
+      ccAddresses: parseAddressList(message.cc),
+      subject: message.subject?.trim() || "",
+      bodyText: bodies.bodyText,
+      bodyHtml: bodies.bodyHtml,
+      resendEmailId: payload.emailId,
+      status: "received",
+      hasActionItem: false,
+      actionSummary: null,
+      chatId: null,
+      inReplyTo: null,
+      attachments: message.attachments.map((attachment) => ({
+        filename: attachment.filename || "attachment",
+        contentType: "application/octet-stream",
+        size: attachment.size,
+      })),
+    });
+  } catch (error) {
+    const raced = await getEmailByResendId(payload.emailId);
+    if (raced) return raced;
+    throw error;
+  }
+  await persistEmailEmbeddings(email);
+
+  if (fromMatchesAccount(fromAddress, owner.email)) {
+    await startActionSessionIfRequested(
+      email,
+      `This email is in the user's Resend inbox (thread ${payload.threadId}, email ${payload.emailId}). To answer in that thread, use inbox_reply with this threadId instead of send_email.`,
+    );
+  }
   return (await getEmail(owner.id, email.id)) ?? email;
 }
