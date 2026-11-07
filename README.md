@@ -1,6 +1,6 @@
 # Jarvis
 
-[![CI](https://github.com/gocougs2020/morrow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gocougs2020/morrow/actions/workflows/ci.yml)
+[![CI](https://github.com/gocougs2020/jarvis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gocougs2020/jarvis/actions/workflows/ci.yml)
 
 Jarvis is an opinionated but flexible, deployable workspace for quickly building AI agents. One deploy is one team workspace: files, sessions, memory, inbox, and usage are designed a certain way. Models, skills, connections, and instructions are yours to change.
 
@@ -53,7 +53,7 @@ You need a [GitHub](https://github.com/signup) account and a [Vercel](https://ve
 
 ### Deploy on Vercel (recommended)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fgocougs2020%2Fmorrow&project-name=jarvis&repository-name=jarvis&env=BETTER_AUTH_SECRET%2CBETTER_AUTH_URL%2CALLOWED_SIGNUP_EMAILS&envDescription=BETTER_AUTH_SECRET%3A+32%2B+random+characters.+BETTER_AUTH_URL%3A+your+live+origin+including+https%3A%2F%2F+%28https%3A%2F%2FYOUR-PROJECT.vercel.app%29.+ALLOWED_SIGNUP_EMAILS%3A+your+email+-+hides+the+setup+page+and+blocks+strangers+from+using+your+models.&envLink=https%3A%2F%2Fgithub.com%2Fgocougs2020%2Fmorrow%23environment-variables&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%2C%22allowConnectExistingProduct%22%3Atrue%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fgocougs2020%2Fjarvis&project-name=jarvis&repository-name=jarvis&env=BETTER_AUTH_SECRET%2CBETTER_AUTH_URL%2CALLOWED_SIGNUP_EMAILS&envDescription=BETTER_AUTH_SECRET%3A+32%2B+random+characters.+BETTER_AUTH_URL%3A+your+live+origin+including+https%3A%2F%2F+%28https%3A%2F%2FYOUR-PROJECT.vercel.app%29.+ALLOWED_SIGNUP_EMAILS%3A+your+email+-+hides+the+setup+page+and+blocks+strangers+from+using+your+models.&envLink=https%3A%2F%2Fgithub.com%2Fgocougs2020%2Fjarvis%23environment-variables&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%2C%22allowConnectExistingProduct%22%3Atrue%7D%2C%7B%22type%22%3A%22blob%22%2C%22access%22%3A%22private%22%7D%5D)
 
 The button copies this repo into your GitHub account and creates a Vercel project. The wizard asks you to type three values (it cannot fill secrets for you — they would sit in the browser history) and offers Neon plus private Blob:
 
@@ -76,16 +76,16 @@ You can also deploy from a terminal after `npm install` — see [Deploy to Verce
 
 On a Mac, open **Terminal** (Applications → Utilities → Terminal). On Windows, open **Terminal** or **PowerShell**.
 
-**Easiest:** open [github.com/gocougs2020/morrow](https://github.com/gocougs2020/morrow), click **Fork** (top right) so you have your own copy, then click the green **Code** button → **Download ZIP**. Unzip the folder. In Terminal, type `cd ` (with a space), drag the unzipped folder onto the window, and press Return.
+**Easiest:** open [github.com/gocougs2020/jarvis](https://github.com/gocougs2020/jarvis), click **Fork** (top right) so you have your own copy, then click the green **Code** button → **Download ZIP**. Unzip the folder. In Terminal, type `cd ` (with a space), drag the unzipped folder onto the window, and press Return.
 
 **Or use Git** (replace `YOUR-USERNAME` with your GitHub name if you forked):
 
 ```bash
-git clone https://github.com/gocougs2020/morrow.git
-cd morrow
+git clone https://github.com/gocougs2020/jarvis.git
+cd jarvis
 ```
 
-If you forked first, clone `https://github.com/YOUR-USERNAME/morrow.git` instead.
+If you forked first, clone `https://github.com/YOUR-USERNAME/jarvis.git` instead.
 
 Then install and create your private settings file:
 
@@ -129,7 +129,7 @@ Then [lock who can sign in](#lock-who-can-sign-in) so the checklist leaves the h
 
 Use this if you forked and imported on [vercel.com/new](https://vercel.com/new) instead of the Deploy button. Skip any step the wizard already completed.
 
-1. Fork [github.com/gocougs2020/morrow](https://github.com/gocougs2020/morrow) if you have not already.
+1. Fork [github.com/gocougs2020/jarvis](https://github.com/gocougs2020/jarvis) if you have not already.
 2. Open [vercel.com/new](https://vercel.com/new), sign in with GitHub, and **Import** your fork. Deploy and copy the site URL (it looks like `https://something.vercel.app`).
 3. In that Vercel project → **Settings → Environment Variables**, add at least:
 
@@ -204,7 +204,53 @@ For the eve TUI only: `npm run dev:eve`.
 
 ## Configure the product (`app.config.ts`)
 
-This is the file to change after you deploy a copy of the repo. Values below are the current defaults.
+`app.config.ts` holds the defaults every deployment starts from. Values below are the current defaults. Change them one of two ways:
+
+- **Per deployment, with environment variables** (recommended). Leave `app.config.ts` alone and set overrides on the Vercel project. Your fork then pulls upstream without merge conflicts, and one repo can run several differently branded deployments (for example the public demo and your own site). See [Per-deployment overrides](#per-deployment-overrides).
+- **In the file.** Edit `app.config.ts`, then restart `npm run dev` or redeploy. Use this when the change should apply to every deployment of your fork.
+
+### Per-deployment overrides
+
+| Variable | Overrides | Example |
+| --- | --- | --- |
+| `NEXT_PUBLIC_APP_NAME` | `brand.name` | `Friday` |
+| `NEXT_PUBLIC_APP_TAGLINE` | `brand.tagline` | `My research desk.` |
+| `NEXT_PUBLIC_BRAND_COLOR` | `theme.brandColor` | `#2f629f` |
+| `NEXT_PUBLIC_APP_CONFIG` | Any key in `app.config.ts`, as JSON | see below |
+
+`NEXT_PUBLIC_APP_CONFIG` is a JSON object with only the keys you want to change. It is deep-merged over `app.config.ts`, so everything you leave out keeps its default:
+
+```bash
+NEXT_PUBLIC_APP_CONFIG='{
+  "home": { "promptPlaceholder": "What are we working on?" },
+  "theme": { "radius": "0.375rem", "dark": { "primary": "#9ab8de" } },
+  "skills": { "story": { "enabled": false }, "household": { "suggest": false } },
+  "models": { "chatLow": "openai/gpt-6.1-sol" }
+}'
+```
+
+- The three shortcut variables win over the same keys in the JSON.
+- In `.env.local`, quote any value that contains `#` (`NEXT_PUBLIC_BRAND_COLOR="#2f629f"`, JSON in single quotes as above). Unquoted, `#` starts a comment and the value is cut off. Values typed into the Vercel dashboard need no quotes.
+- A key that `app.config.ts` does not define, a wrong type (`"enabled": "no"`), invalid JSON, or a CSS value that is not a plain color or length **fails the build** with a list of what to fix, so a typo never ships half-applied. The previous deployment keeps serving.
+- Values are inlined at build time: **redeploy** after changing them (Vercel → Deployments → Redeploy). Locally, restart `npm run dev`.
+- Everything here reaches the browser. It is for product defaults only — never secrets, emails, domains, or access lists. Those stay in their own variables.
+- Adding a new built-in skill still needs its folder under `agent/skills/` and an entry in `app.config.ts`; the override can only turn existing skills on or off.
+
+### Theme
+
+```ts
+theme: {
+  brandColor: null,          // one color for primary buttons and focus rings, light and dark
+  brandForeground: "#ffffff", // text on brandColor; keep 4.5:1 contrast
+  radius: null,              // e.g. "0.5rem"; null keeps 0.625rem
+  light: {},                 // per-token overrides, e.g. { background: "#fbfaf7" }
+  dark: {},                  // same tokens, dark mode
+  browserColor: { light: "#f7f7f7", dark: "#171717" }, // browser toolbar / installed-app title bar
+  icon: { background: "#000000", foreground: "#ffffff" }, // home-screen icon and favicon
+},
+```
+
+Token names are the CSS variables in `app/globals.css` without the leading `--`: `background`, `foreground`, `card`, `primary`, `primary-foreground`, `secondary`, `muted`, `muted-foreground`, `accent`, `border`, `input`, `ring`, and the rest of that list. Values are any CSS color (`#2f629f`, `oklch(0.55 0.15 250)`, `rgb(47 98 159)`). With the default theme no extra CSS is rendered. To change fonts or anything structural, edit `app/layout.tsx` and `app/globals.css`.
 
 ### Brand and home page
 
@@ -436,6 +482,10 @@ ALLOWED_ACCOUNT_USAGE_EMAILS=ada@agency.com
 | `RESEND_WEBHOOK_SECRET` | For inbound | Signing secret from Resend → Webhooks (`email.received`, plus `inbox.email.received` for [Resend inboxes](#resend-inbox)) |
 | `RESEND_FROM_EMAIL` | Signup + agent mail | The agent's one address, e.g. `Jarvis <agent@yourdomain.com>`. Signup verification and all agent mail are sent from it, inbound mail to it is received, and the optional [Resend inbox](#resend-inbox) lives on it. Use a domain with sending and receiving enabled in Resend. |
 | `MSB_HOME` | Recommended | Keep `.eve/msb-home` so this project’s microsandbox state stays isolated |
+| `NEXT_PUBLIC_APP_NAME` | Optional | Product name for this deployment (`brand.name`). See [Per-deployment overrides](#per-deployment-overrides). |
+| `NEXT_PUBLIC_APP_TAGLINE` | Optional | Home page and meta description (`brand.tagline`) |
+| `NEXT_PUBLIC_BRAND_COLOR` | Optional | Primary button and focus color (`theme.brandColor`) |
+| `NEXT_PUBLIC_APP_CONFIG` | Optional | JSON deep-merged over `app.config.ts`. Public; no secrets. Invalid keys fail the build. |
 
 ## Deploy to Vercel
 

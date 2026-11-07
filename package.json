@@ -1,17 +1,18 @@
 {
   "name": "jarvis",
   "version": "0.4.0",
+  "private": true,
   "description": "An opinionated but flexible, deployable workspace for quickly building AI agents.",
   "author": "Logan Dziuk",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gocougs2020/morrow.git"
+    "url": "git+https://github.com/gocougs2020/jarvis.git"
   },
   "bugs": {
-    "url": "https://github.com/gocougs2020/morrow/issues"
+    "url": "https://github.com/gocougs2020/jarvis/issues"
   },
-  "homepage": "https://github.com/gocougs2020/morrow#readme",
+  "homepage": "https://github.com/gocougs2020/jarvis#readme",
   "keywords": [
     "ai-agent",
     "workspace",

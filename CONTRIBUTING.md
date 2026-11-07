@@ -6,7 +6,7 @@ Thanks for wanting to help. Jarvis is a personal starter — chat, files, memory
 
 1. Open an issue and describe the change. Do not send a surprise refactor.
 2. Keep the diff to the bug or feature you named.
-3. Product defaults stay in `app.config.ts`. Secrets stay in env vars.
+3. Product defaults stay in `app.config.ts`. Secrets stay in env vars. Anything a deployment should be able to change (copy, colors, toggles) belongs in `app.config.ts` so `NEXT_PUBLIC_APP_CONFIG` can override it — do not hardcode it in a component.
 
 ## How to work
 
@@ -22,6 +22,7 @@ Then:
 ```bash
 npm test
 npm run typecheck
+npm run lint
 ```
 
 UI changes need a real pass in the browser, not only a compile.

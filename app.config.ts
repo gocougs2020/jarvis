@@ -1,13 +1,31 @@
 /**
  * Deployer configuration.
  *
- * Edit this file after you clone or fork the repo, then restart `npm run dev`
- * or redeploy. Secrets, host URLs, and access allowlists stay in `.env.local`
- * / Vercel env — this file is for product defaults that should ship with the UI.
- * Never put emails or domains here.
+ * These are the defaults every deployment starts from. Two ways to change them:
+ *
+ * 1. Without touching code (recommended for forks and for running several
+ *    deployments from one repo): set `NEXT_PUBLIC_APP_CONFIG` to a JSON object
+ *    with only the keys you want to change, for example
+ *    `{"brand":{"name":"Friday"},"theme":{"brandColor":"#2f629f"}}`.
+ *    `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_APP_TAGLINE`, and
+ *    `NEXT_PUBLIC_BRAND_COLOR` are shortcuts for the common ones. Unknown keys
+ *    and wrong types fail the build. See `lib/config-overrides.ts`.
+ * 2. Edit this file, then restart `npm run dev` or redeploy.
+ *
+ * Secrets, host URLs, and access allowlists stay in `.env.local` / Vercel env —
+ * this file (and `NEXT_PUBLIC_APP_CONFIG`) is for product defaults that ship
+ * with the UI and are visible in the browser. Never put emails or domains here.
  *
  * See README.md for install, environment variables, and deployment.
  */
+
+import {
+  applyConfigOverrides,
+  REASONING_EFFORTS,
+  SANDBOX_NETWORK_MODES,
+  TRIAGE_ACTIONS,
+  TRIAGE_TONES,
+} from "./lib/config-overrides";
 
 export type AppSkillConfig = {
   /** When false, the skill is hidden from the home page and Settings, and the agent is told not to load it. */
@@ -19,19 +37,60 @@ export type AppSkillConfig = {
 };
 
 /** AI SDK reasoning levels. Which ones a model honors depends on the provider. */
-export type ReasoningEffort =
-  | "provider-default"
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/**
+ * Color tokens from `app/globals.css`. Values are any CSS color
+ * (`#2f629f`, `oklch(0.55 0.15 250)`, `rgb(47 98 159)`).
+ */
+export type ThemeToken =
+  | "background"
+  | "foreground"
+  | "card"
+  | "card-foreground"
+  | "popover"
+  | "popover-foreground"
+  | "primary"
+  | "primary-foreground"
+  | "secondary"
+  | "secondary-foreground"
+  | "muted"
+  | "muted-foreground"
+  | "accent"
+  | "accent-foreground"
+  | "destructive"
+  | "border"
+  | "input"
+  | "ring";
 
 export type AppConfig = {
   brand: {
     name: string;
     tagline: string;
+  };
+  /**
+   * Look and feel. The defaults are the neutral palette in `app/globals.css`;
+   * anything set here is layered on top at render time, so a deployment can
+   * rebrand without a code change.
+   */
+  theme: {
+    /**
+     * One brand color for primary buttons, the send button, and focus rings,
+     * in light and dark mode. `null` keeps the neutral default.
+     */
+    brandColor: string | null;
+    /** Text and icons on `brandColor`. Pick one with at least 4.5:1 contrast. */
+    brandForeground: string;
+    /** Corner radius for cards, inputs, and buttons, e.g. `"0.5rem"`. `null` keeps the default (0.625rem). */
+    radius: string | null;
+    /** Per-token overrides for light mode. Applied after `brandColor`. */
+    light: Partial<Record<ThemeToken, string>>;
+    /** Per-token overrides for dark mode. Applied after `brandColor`. */
+    dark: Partial<Record<ThemeToken, string>>;
+    /** Browser toolbar / installed-app title bar color. Match `--background`. */
+    browserColor: { light: string; dark: string };
+    /** Home-screen and favicon icon colors. */
+    icon: { background: string; foreground: string };
   };
   home: {
     promptPlaceholder: string;
@@ -69,8 +128,8 @@ export type AppConfig = {
      */
     triageInstructions: string;
     /** What Resend's inbox agent may do. It never sends mail on its own. */
-    triageActions: readonly ("draft_reply" | "add_labels" | "archive" | "mark_as_spam")[];
-    triageTone: "concise_professional" | "concise_casual" | "expanded_professional" | "expanded_casual";
+    triageActions: readonly (typeof TRIAGE_ACTIONS)[number][];
+    triageTone: (typeof TRIAGE_TONES)[number];
   };
   models: {
     /** Chat model for simple first prompts; also first-prompt routing, email triage, and web search. */
@@ -140,7 +199,7 @@ export type AppConfig = {
      * APIs from inside the sandbox. Docker (local) only supports allow-all or
      * deny-all, so a hostname list means deny-all there.
      */
-    sandboxNetwork: "deny-all" | "allow-all" | readonly string[];
+    sandboxNetwork: (typeof SANDBOX_NETWORK_MODES)[number] | readonly string[];
     /**
      * Mail to the agent address starts an unattended session only when it
      * comes from an account's own email. The address is not secret and From
@@ -176,10 +235,20 @@ export type AppConfig = {
   };
 };
 
-export const appConfig = {
+const defaults = {
   brand: {
     name: "Jarvis",
     tagline: "An opinionated but flexible workspace for quickly building AI agents.",
+  },
+
+  theme: {
+    brandColor: null,
+    brandForeground: "#ffffff",
+    radius: null,
+    light: {},
+    dark: {},
+    browserColor: { light: "#f7f7f7", dark: "#171717" },
+    icon: { background: "#000000", foreground: "#ffffff" },
   },
 
   home: {
@@ -353,3 +422,15 @@ export const appConfig = {
     inAppPage: true,
   },
 } as const satisfies AppConfig;
+
+/**
+ * The config the app runs with: the defaults above plus this deployment's
+ * `NEXT_PUBLIC_*` overrides. Each `process.env` read is spelled out so
+ * Next.js can inline it into client bundles.
+ */
+export const appConfig = applyConfigOverrides(defaults, {
+  json: process.env.NEXT_PUBLIC_APP_CONFIG,
+  name: process.env.NEXT_PUBLIC_APP_NAME,
+  tagline: process.env.NEXT_PUBLIC_APP_TAGLINE,
+  brandColor: process.env.NEXT_PUBLIC_BRAND_COLOR,
+});
