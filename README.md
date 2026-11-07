@@ -225,7 +225,7 @@ NEXT_PUBLIC_APP_CONFIG='{
   "home": { "promptPlaceholder": "What are we working on?" },
   "theme": { "radius": "0.375rem", "dark": { "primary": "#9ab8de" } },
   "skills": { "story": { "enabled": false }, "household": { "suggest": false } },
-  "models": { "chatHigh": "anthropic/claude-opus-5-5" }
+  "models": { "chatLow": "openai/gpt-6.1-sol" }
 }'
 ```
 

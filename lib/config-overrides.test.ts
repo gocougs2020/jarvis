@@ -97,7 +97,7 @@ describe("isSafeCssValue", () => {
     "allows %s",
     (value) => expect(isSafeCssValue(value)).toBe(true),
   );
-  it.each(["", "red;", "a{b}", "url('x')", "</style>", "\\61"])("refuses %s", (value) =>
+  it.each(["", "red;", "a{b}", "url('x')", "url(//evil.example/x)", "image-set(a)", "</style>", "\\61"])("refuses %s", (value) =>
     expect(isSafeCssValue(value)).toBe(false),
   );
 });
