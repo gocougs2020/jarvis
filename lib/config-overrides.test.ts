@@ -77,6 +77,38 @@ describe("applyConfigOverrides", () => {
     expect(() => applyConfigOverrides(defaults, { json: '{"security":{"sandboxNetwork":1}}' })).toThrow();
   });
 
+  it("checks fixed-list settings against the real config", () => {
+    const run = (json: unknown) => () => applyConfigOverrides(appConfig, { json: JSON.stringify(json) });
+
+    expect(run({ models: { reasoning: { instructions: "hgh" } } })).toThrow(
+      /models\.reasoning\.instructions: expected one of "provider-default", .*"xhigh"/,
+    );
+    expect(run({ resendInbox: { triageTone: "loud" } })).toThrow(/resendInbox\.triageTone: expected one of/);
+    expect(run({ resendInbox: { triageActions: ["archive", "delete"] } })).toThrow(
+      /resendInbox\.triageActions: expected an array of/,
+    );
+    expect(run({ security: { sandboxNetwork: "deny-al" } })).toThrow(/security\.sandboxNetwork: expected one of/);
+
+    const ok = applyConfigOverrides(appConfig, {
+      json: JSON.stringify({
+        models: { reasoning: { instructions: "xhigh" } },
+        resendInbox: { triageTone: "expanded_professional", triageActions: ["archive"] },
+        security: { sandboxNetwork: "allow-all" },
+      }),
+    });
+    expect(ok.models.reasoning.instructions).toBe("xhigh");
+    expect(ok.resendInbox.triageActions).toEqual(["archive"]);
+    expect(ok.security.sandboxNetwork).toBe("allow-all");
+  });
+
+  it("requires a positive number for a new context window", () => {
+    const run = (value: unknown) => () =>
+      applyConfigOverrides(appConfig, { json: JSON.stringify({ models: { contextWindows: { "x/new-model": value } } }) });
+    expect(run("200000")).toThrow(/models\.contextWindows\.x\/new-model: expected a positive number/);
+    expect(run(0)).toThrow(/expected a positive number/);
+    expect(run(200_000)()).toMatchObject({ models: { contextWindows: { "x/new-model": 200_000 } } });
+  });
+
   it("refuses invalid JSON and non-objects", () => {
     expect(() => applyConfigOverrides(defaults, { json: "{brand:" })).toThrow(/not valid JSON/);
     expect(() => applyConfigOverrides(defaults, { json: "[1]" })).toThrow(/must be a JSON object/);

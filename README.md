@@ -230,6 +230,7 @@ NEXT_PUBLIC_APP_CONFIG='{
 ```
 
 - The three shortcut variables win over the same keys in the JSON.
+- In `.env.local`, quote any value that contains `#` (`NEXT_PUBLIC_BRAND_COLOR="#2f629f"`, JSON in single quotes as above). Unquoted, `#` starts a comment and the value is cut off. Values typed into the Vercel dashboard need no quotes.
 - A key that `app.config.ts` does not define, a wrong type (`"enabled": "no"`), invalid JSON, or a CSS value that is not a plain color or length **fails the build** with a list of what to fix, so a typo never ships half-applied. The previous deployment keeps serving.
 - Values are inlined at build time: **redeploy** after changing them (Vercel → Deployments → Redeploy). Locally, restart `npm run dev`.
 - Everything here reaches the browser. It is for product defaults only — never secrets, emails, domains, or access lists. Those stay in their own variables.

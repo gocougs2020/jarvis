@@ -19,7 +19,13 @@
  * See README.md for install, environment variables, and deployment.
  */
 
-import { applyConfigOverrides } from "./lib/config-overrides";
+import {
+  applyConfigOverrides,
+  REASONING_EFFORTS,
+  SANDBOX_NETWORK_MODES,
+  TRIAGE_ACTIONS,
+  TRIAGE_TONES,
+} from "./lib/config-overrides";
 
 export type AppSkillConfig = {
   /** When false, the skill is hidden from the home page and Settings, and the agent is told not to load it. */
@@ -31,14 +37,7 @@ export type AppSkillConfig = {
 };
 
 /** AI SDK reasoning levels. Which ones a model honors depends on the provider. */
-export type ReasoningEffort =
-  | "provider-default"
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * Color tokens from `app/globals.css`. Values are any CSS color
@@ -129,8 +128,8 @@ export type AppConfig = {
      */
     triageInstructions: string;
     /** What Resend's inbox agent may do. It never sends mail on its own. */
-    triageActions: readonly ("draft_reply" | "add_labels" | "archive" | "mark_as_spam")[];
-    triageTone: "concise_professional" | "concise_casual" | "expanded_professional" | "expanded_casual";
+    triageActions: readonly (typeof TRIAGE_ACTIONS)[number][];
+    triageTone: (typeof TRIAGE_TONES)[number];
   };
   models: {
     /** Chat model for simple first prompts; also first-prompt routing, email triage, and web search. */
@@ -200,7 +199,7 @@ export type AppConfig = {
      * APIs from inside the sandbox. Docker (local) only supports allow-all or
      * deny-all, so a hostname list means deny-all there.
      */
-    sandboxNetwork: "deny-all" | "allow-all" | readonly string[];
+    sandboxNetwork: (typeof SANDBOX_NETWORK_MODES)[number] | readonly string[];
     /**
      * Mail to the agent address starts an unattended session only when it
      * comes from an account's own email. The address is not secret and From

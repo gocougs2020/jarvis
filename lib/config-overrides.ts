@@ -33,8 +33,33 @@ export type ConfigOverrideInput = {
  */
 const OPEN_MAPS = new Set(["models.contextWindows", "theme.light", "theme.dark"]);
 
-/** Paths whose value may be either a string or an array of strings. */
-const STRING_OR_LIST = new Set(["security.sandboxNetwork"]);
+/**
+ * Fixed lists of values. `app.config.ts` derives its types from these, so
+ * the build-time check and the TypeScript types cannot drift apart.
+ */
+export const REASONING_EFFORTS = ["provider-default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const TRIAGE_ACTIONS = ["draft_reply", "add_labels", "archive", "mark_as_spam"] as const;
+export const TRIAGE_TONES = ["concise_professional", "concise_casual", "expanded_professional", "expanded_casual"] as const;
+export const SANDBOX_NETWORK_MODES = ["deny-all", "allow-all"] as const;
+
+/** Settings that must be one of a fixed list of strings. */
+function enumFor(path: string): readonly string[] | undefined {
+  if (path.startsWith("models.reasoning.")) return REASONING_EFFORTS;
+  if (path === "resendInbox.triageTone") return TRIAGE_TONES;
+  return undefined;
+}
+
+/** Settings that are an array whose items come from a fixed list. */
+const ENUM_LISTS: Readonly<Record<string, readonly string[]>> = {
+  "resendInbox.triageActions": TRIAGE_ACTIONS,
+};
+
+/** Paths whose value is a fixed mode or an array of strings (a host list). */
+const MODE_OR_LIST: Readonly<Record<string, readonly string[]>> = {
+  "security.sandboxNetwork": SANDBOX_NETWORK_MODES,
+};
+
+const quoted = (values: readonly string[]) => values.map((v) => `"${v}"`).join(", ");
 
 /** Paths that hold CSS colors or lengths and are written into a <style> tag. */
 function isCssPath(path: string): boolean {
@@ -84,11 +109,26 @@ function mergeInto(base: unknown, override: unknown, path: string, errors: strin
     return override;
   }
 
-  if (STRING_OR_LIST.has(path)) {
+  const modes = MODE_OR_LIST[path];
+  if (modes) {
     const ok =
-      typeof override === "string" ||
-      (Array.isArray(override) && override.every((item) => typeof item === "string"));
-    if (!ok) errors.push(`${path}: expected a string or an array of strings`);
+      (typeof override === "string" && modes.includes(override)) ||
+      (Array.isArray(override) && override.every((item) => typeof item === "string" && item.trim() !== ""));
+    if (!ok) errors.push(`${path}: expected one of ${quoted(modes)}, or an array of hostnames`);
+    return ok ? override : base;
+  }
+
+  const allowed = enumFor(path);
+  if (allowed) {
+    if (typeof override === "string" && allowed.includes(override)) return override;
+    errors.push(`${path}: expected one of ${quoted(allowed)}`);
+    return base;
+  }
+
+  const allowedItems = ENUM_LISTS[path];
+  if (allowedItems) {
+    const ok = Array.isArray(override) && override.every((item) => typeof item === "string" && allowedItems.includes(item));
+    if (!ok) errors.push(`${path}: expected an array of ${quoted(allowedItems)}`);
     return ok ? override : base;
   }
 
@@ -135,9 +175,10 @@ function mergeInto(base: unknown, override: unknown, path: string, errors: strin
   }
 
   if (base === undefined) {
-    // New entry in an open map: numbers for context windows, strings elsewhere.
-    if (typeof override === "string" || typeof override === "number") return override;
-    errors.push(`${path}: expected a string or number, got ${describe(override)}`);
+    // New entry in an open map. Theme tokens are handled above, so this is a
+    // context window: a token count.
+    if (typeof override === "number" && Number.isFinite(override) && override > 0) return override;
+    errors.push(`${path}: expected a positive number, got ${describe(override)}`);
     return undefined;
   }
 
