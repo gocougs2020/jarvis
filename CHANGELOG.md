@@ -2,11 +2,16 @@
 
 What changed in Jarvis that a fork should know about.
 
-When you pull `main`, keep your customized [`app.config.ts`](./app.config.ts) — especially the `models` block. Brand, home copy, related-session and reminder-email floors, and skill enablement live in that file too. Secrets and who can sign in stay in `.env.local` / Vercel env. They are not in this repo.
+When you pull `main`, keep your customized [`app.config.ts`](./app.config.ts) — especially the `models` block. Brand, home copy, related-session and reminder-email floors, and skill enablement live in that file too. Secrets and who can sign in stay in `.env.local` / Vercel env. They are not in this repo. Easier: leave `app.config.ts` unmodified and put your changes in `NEXT_PUBLIC_APP_CONFIG` (see README → Per-deployment overrides), so pulls never conflict.
 
 The matching git tag is the baseline to sync against. Bump `package.json` when you tag the next release.
 
 ## Unreleased
+
+Per-deployment config and theming
+- Any `app.config.ts` key can now be overridden per deployment with `NEXT_PUBLIC_APP_CONFIG` (JSON, deep-merged), plus `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_APP_TAGLINE`, and `NEXT_PUBLIC_BRAND_COLOR` shortcuts. Unknown keys, wrong types, and unsafe CSS fail the build. A fork can keep `app.config.ts` identical to upstream.
+- New `theme` block in `app.config.ts`: `brandColor`, `brandForeground`, `radius`, per-mode `light` / `dark` token overrides, `browserColor` (was hardcoded in `lib/pwa.ts`), and `icon` colors (were hardcoded in `lib/app-icon.tsx`). The defaults render exactly as before. **Add the block when you merge** if you keep your own config.
+- Repository links point at `gocougs2020/jarvis` (were the old `morrow` name).
 
 Email: one agent address
 - The agent has one address, `RESEND_FROM_EMAIL` (for example `agent@yourdomain.com`). It sends from it and receives at it. Per-user plus-addresses (`agent+token@…`), address rotation, and `RESEND_INBOUND_ADDRESSES` / `RESEND_INBOUND_DOMAINS` are gone. **Remove those two variables**, and point anything that mailed an old plus-address at the agent address.
