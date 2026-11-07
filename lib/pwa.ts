@@ -1,8 +1,7 @@
-/** Light/dark colors matching `app/globals.css` `--background`. */
-export const pwaThemeColor = {
-  light: "#f7f7f7",
-  dark: "#171717",
-} as const;
+import { appConfig } from "../app.config";
+
+/** Light/dark browser chrome colors (`theme.browserColor` in `app.config.ts`). Match `--background`. */
+export const pwaThemeColor: { readonly light: string; readonly dark: string } = appConfig.theme.browserColor;
 
 export const pwaIconSizes = {
   "192": { size: 192, maskable: false },
