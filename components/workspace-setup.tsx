@@ -29,12 +29,11 @@ type SetupItemId =
   | "authUrl"
   | "database"
   | "blob"
-  | "allowlist"
+  | "owner"
   | "voice"
-  | "inbox"
-  | "accountUsage";
+  | "inbox";
 
-const optionalItems: readonly SetupItemId[] = ["voice", "inbox", "accountUsage"];
+const optionalItems: readonly SetupItemId[] = ["voice", "inbox"];
 
 export function WorkspaceSetup({
   initialStatus,
@@ -204,19 +203,19 @@ export function WorkspaceSetup({
                 </p>
               </SetupStep>
             ) : null}
-            {show("allowlist") ? (
+            {show("owner") ? (
               <SetupStep
-                done={status.allowlist}
-                id="allowlist"
-                last={visibleRequired.at(-1) === "allowlist"}
-                open={openId === "allowlist"}
-                onOpen={() => setOpenId("allowlist")}
-                title="Who can sign in"
+                done={status.owner}
+                id="owner"
+                last={visibleRequired.at(-1) === "owner"}
+                open={openId === "owner"}
+                onOpen={() => setOpenId("owner")}
+                title="Owner"
               >
                 <p>
-                  <code className="font-mono">ALLOWED_SIGNUP_EMAILS</code> or{" "}
-                  <code className="font-mono">ALLOWED_SIGNUP_DOMAINS</code> — this is the spend
-                  control. Until one is set, the home page stays a public checklist.
+                  <code className="font-mono">OWNER_EMAIL</code> — the one account that can sign
+                  in. Until it is set, the home page stays a public checklist and nobody can create
+                  an account.
                 </p>
               </SetupStep>
             ) : null}
@@ -245,6 +244,7 @@ export function WorkspaceSetup({
             <SetupStep
               done={status.inbox}
               id="inbox"
+              last
               open={openId === "inbox"}
               onOpen={() => setOpenId("inbox")}
               title="Email inbox"
@@ -259,20 +259,6 @@ export function WorkspaceSetup({
                 webhook steps.
               </p>
             </SetupStep>
-            <SetupStep
-              done={status.accountUsage}
-              id="accountUsage"
-              last
-              open={openId === "accountUsage"}
-              onOpen={() => setOpenId("accountUsage")}
-              title="Account usage tab"
-            >
-              <p>
-                <code className="font-mono">ALLOWED_ACCOUNT_USAGE_EMAILS</code> — who can see
-                every user&apos;s spend on Usage. When empty, everyone sees only their own
-                totals.
-              </p>
-            </SetupStep>
           </ol>
         </section>
 
@@ -283,7 +269,7 @@ export function WorkspaceSetup({
           <code className="font-mono">app/settings/setup/</code> and{" "}
           <code className="font-mono">components/workspace-setup.tsx</code>. The README lists the
           leftover links. The first-run checklist on <code className="font-mono">/</code> stays
-          until the allowlist is set.
+          until <code className="font-mono">OWNER_EMAIL</code> is set.
         </p>
 
         <p>

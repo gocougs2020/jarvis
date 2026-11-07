@@ -75,7 +75,6 @@ export function DocumentWorkspace({
   };
 
   useEffect(() => {
-    if (!document.canEdit) return;
     if (skipAutosave.current) {
       skipAutosave.current = false;
       return;
@@ -132,7 +131,6 @@ export function DocumentWorkspace({
             <Input
               aria-label="File title"
               className="h-9 min-w-0 flex-1 border-transparent px-3 text-lg font-medium shadow-none md:text-lg dark:bg-transparent"
-              disabled={!document.canEdit}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
@@ -141,7 +139,6 @@ export function DocumentWorkspace({
                 <DownloadIcon />
               </a>
             </Button>
-            {document.owned ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -169,30 +166,21 @@ export function DocumentWorkspace({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
             <Badge variant="secondary">{documentKindLabel(document.kind)}</Badge>
-            {!document.owned && visibility === "shared" ? (
-              <Badge variant="outline">Shared</Badge>
-            ) : null}
-            {!document.owned && (isPublicVisibility(visibility) || isPublic) ? (
-              <Badge variant="outline">Public</Badge>
-            ) : null}
             <span>{formatBytes(document.size)}</span>
             <span aria-hidden>·</span>
             <span>{saving ? "Saving…" : `Updated ${formatRelativeTime(savedAt)}`}</span>
-            {document.owned ? (
-              <FileVisibilitySelect
-                id="document-visibility"
-                value={visibility}
-                onChange={(next) => {
-                  setVisibility(next);
-                  setIsPublic(isPublicVisibility(next));
-                  void save({ visibility: next });
-                }}
-              />
-            ) : null}
+            <FileVisibilitySelect
+              id="document-visibility"
+              value={visibility}
+              onChange={(next) => {
+                setVisibility(next);
+                setIsPublic(isPublicVisibility(next));
+                void save({ visibility: next });
+              }}
+            />
             {isPublicVisibility(visibility) || isPublic ? (
               <span className="inline-flex min-w-0 max-w-72 items-center gap-1 text-foreground">
                 <a

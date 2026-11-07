@@ -5,7 +5,7 @@ export const REQUIRED_SETUP_STEP_IDS = [
   "authUrl",
   "database",
   "blob",
-  "allowlist",
+  "owner",
 ] as const;
 
 export type RequiredSetupStepId = (typeof REQUIRED_SETUP_STEP_IDS)[number];
@@ -19,10 +19,10 @@ export function visibleRequiredSetupSteps(
   status: { hosted: boolean; authSecret: boolean },
 ): readonly RequiredSetupStepId[] {
   if (status.hosted) {
-    const hosted: RequiredSetupStepId[] = ["authUrl", "database", "blob", "allowlist"];
+    const hosted: RequiredSetupStepId[] = ["authUrl", "database", "blob", "owner"];
     return status.authSecret ? hosted : ["authSecret", ...hosted];
   }
-  return ["authSecret", "aiGateway", "allowlist"];
+  return ["authSecret", "aiGateway", "owner"];
 }
 
 export function shouldShowRequiredSetupStep(
@@ -36,5 +36,5 @@ export function shouldShowRequiredSetupStep(
 export function nextOpenRequiredSetupStep(
   status: Record<RequiredSetupStepId, boolean>,
 ): RequiredSetupStepId {
-  return visibleRequiredSetupSteps(status).find((id) => !status[id]) ?? "allowlist";
+  return visibleRequiredSetupSteps(status).find((id) => !status[id]) ?? "owner";
 }

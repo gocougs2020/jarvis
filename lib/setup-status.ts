@@ -1,7 +1,7 @@
-import { isAccessAllowlistActive } from "@/lib/access";
 import { isAuthSecretConfigured } from "@/lib/auth-secret";
 import { hasBlobStore } from "@/lib/blob-store";
 import { hasNeon } from "@/lib/db";
+import { configuredOwnerEmail } from "@/lib/owner";
 
 export {
   REQUIRED_SETUP_STEP_IDS,
@@ -12,8 +12,8 @@ export {
 } from "@/lib/setup-steps";
 
 export type SetupStatus = {
-  /** Hide the setup screen when this is true. */
-  allowlist: boolean;
+  /** OWNER_EMAIL is set. Hide the setup screen when this is true. */
+  owner: boolean;
   authSecret: boolean;
   authUrl: boolean;
   aiGateway: boolean;
@@ -22,7 +22,6 @@ export type SetupStatus = {
   hosted: boolean;
   voice: boolean;
   inbox: boolean;
-  accountUsage: boolean;
   canWriteLocalEnv: boolean;
 };
 
@@ -55,7 +54,7 @@ function hasText(value: string | undefined): boolean {
 export function getSetupStatus(): SetupStatus {
   const hosted = isHostedOnVercel();
   return {
-    allowlist: isAccessAllowlistActive(),
+    owner: configuredOwnerEmail() !== null,
     authSecret: isAuthSecretConfigured(process.env.BETTER_AUTH_SECRET),
     authUrl: hosted ? isCanonicalProductionAuthUrl(process.env.BETTER_AUTH_URL) : true,
     aiGateway: hasText(process.env.AI_GATEWAY_API_KEY) || hosted,
@@ -65,11 +64,10 @@ export function getSetupStatus(): SetupStatus {
     // Voice runs through AI Gateway, so it is ready whenever chat is.
     voice: hasText(process.env.AI_GATEWAY_API_KEY) || hosted,
     inbox: hasText(process.env.RESEND_API_KEY) && hasText(process.env.RESEND_FROM_EMAIL),
-    accountUsage: hasText(process.env.ALLOWED_ACCOUNT_USAGE_EMAILS),
     canWriteLocalEnv: canWriteLocalEnv(),
   };
 }
 
 export function isSetupScreenVisible(status: SetupStatus = getSetupStatus()): boolean {
-  return !status.allowlist;
+  return !status.owner;
 }

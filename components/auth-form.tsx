@@ -50,10 +50,13 @@ export function AuthForm({
   checkEmail,
   initialError,
   mode,
+  signUpOpen = true,
 }: {
   readonly checkEmail?: boolean;
   readonly initialError?: string;
   readonly mode: "sign-in" | "sign-up";
+  /** False once the owner account exists: Jarvis has exactly one account. */
+  readonly signUpOpen?: boolean;
 }) {
   const [pending, setPending] = useState(false);
 
@@ -171,12 +174,14 @@ export function AuthForm({
               </Button>
               <p className="text-center text-muted-foreground text-sm">
                 {mode === "sign-in" ? (
-                  <>
-                    No account?{" "}
-                    <Link className="underline" href="/sign-up">
-                      Sign up
-                    </Link>
-                  </>
+                  signUpOpen ? (
+                    <>
+                      No account yet?{" "}
+                      <Link className="underline" href="/sign-up">
+                        Create the owner account
+                      </Link>
+                    </>
+                  ) : null
                 ) : (
                   <>
                     Already have an account?{" "}

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export const SETUP_ENV_WRITABLE_KEYS = ["BETTER_AUTH_SECRET", "ALLOWED_SIGNUP_EMAILS"] as const;
+export const SETUP_ENV_WRITABLE_KEYS = ["BETTER_AUTH_SECRET", "OWNER_EMAIL"] as const;
 
 export type SetupEnvWritableKey = (typeof SETUP_ENV_WRITABLE_KEYS)[number];
 

@@ -61,7 +61,7 @@ import {
   sameEmbeddingKey,
   scoreEmbeddingRecords,
 } from "@/lib/store-logic";
-import { isVisibleToViewer, normalizeLibraryVisibility, normalizeVisibility } from "@/lib/visibility";
+import { isOwnedBy, normalizeLibraryVisibility, normalizeVisibility } from "@/lib/visibility";
 
 type AppData = {
   chats: ChatRecord[];
@@ -167,12 +167,6 @@ export function listChats(userId: string): ChatRecord[] {
   return load()
     .chats.filter((chat) => chat.userId === userId)
     .map(normalizeChat)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
-export function listAccountChats(): ChatRecord[] {
-  return load()
-    .chats.map(normalizeChat)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -430,19 +424,19 @@ export function releaseJob(
 
 export function listDocuments(userId: string): DocumentRecord[] {
   return load()
-    .documents.filter((document) => isVisibleToViewer(document, userId))
+    .documents.filter((document) => isOwnedBy(document, userId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function listFolders(userId: string): DocumentFolder[] {
   return load()
-    .documentFolders.filter((folder) => isVisibleToViewer(folder, userId))
+    .documentFolders.filter((folder) => isOwnedBy(folder, userId))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getFolder(userId: string, folderId: string): DocumentFolder | null {
   const folder = load().documentFolders.find((row) => row.id === folderId);
-  return folder && isVisibleToViewer(folder, userId) ? folder : null;
+  return folder && isOwnedBy(folder, userId) ? folder : null;
 }
 
 export function createFolder(record: DocumentFolder): DocumentFolder {
@@ -484,7 +478,7 @@ export function deleteFolder(userId: string, folderId: string): DocumentFolder |
 
 export function getDocument(userId: string, documentId: string): DocumentRecord | null {
   const document = load().documents.find((row) => row.id === documentId);
-  return document && isVisibleToViewer(document, userId) ? document : null;
+  return document && isOwnedBy(document, userId) ? document : null;
 }
 
 export function getPublicDocument(shareId: string): DocumentRecord | null {
@@ -520,7 +514,7 @@ export function updateDocument(
 ): DocumentRecord | null {
   const data = load();
   const index = data.documents.findIndex((document) => document.id === documentId);
-  if (index === -1 || !isVisibleToViewer(data.documents[index], userId)) return null;
+  if (index === -1 || !isOwnedBy(data.documents[index], userId)) return null;
   data.documents[index] = { ...data.documents[index], ...patch, updatedAt: now() };
   save(data);
   return data.documents[index];
@@ -542,14 +536,14 @@ export function listChatDocuments(userId: string, chatId: string): DocumentRecor
     data.documentSessions.filter((link) => link.chatId === chatId).map((link) => link.documentId),
   );
   return data.documents
-    .filter((document) => ids.has(document.id) && isVisibleToViewer(document, userId))
+    .filter((document) => ids.has(document.id) && isOwnedBy(document, userId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function listDocumentChats(userId: string, documentId: string): ChatRecord[] {
   const data = load();
   const document = data.documents.find((row) => row.id === documentId);
-  if (!document || !isVisibleToViewer(document, userId)) return [];
+  if (!document || !isOwnedBy(document, userId)) return [];
   const chatIds = new Set(
     data.documentSessions
       .filter((link) => link.documentId === documentId)
@@ -569,7 +563,7 @@ export function attachDocument(
   const data = load();
   const document = data.documents.find((row) => row.id === documentId);
   const chat = data.chats.find((row) => row.userId === userId && row.id === chatId);
-  if (!document || !chat || !isVisibleToViewer(document, userId)) return false;
+  if (!document || !chat || !isOwnedBy(document, userId)) return false;
   if (data.documentSessions.some((link) => link.documentId === documentId && link.chatId === chatId)) {
     return true;
   }
@@ -585,7 +579,7 @@ export function detachDocument(
 ): boolean {
   const data = load();
   const document = data.documents.find((row) => row.id === documentId);
-  if (!document || !isVisibleToViewer(document, userId)) return false;
+  if (!document || !isOwnedBy(document, userId)) return false;
   const before = data.documentSessions.length;
   data.documentSessions = data.documentSessions.filter(
     (link) => !(link.documentId === documentId && link.chatId === chatId),
@@ -672,12 +666,6 @@ export function upsertUsageRecord(record: UsageRecord): UsageRecord {
 export function listUserUsage(userId: string): UsageRecord[] {
   return load()
     .usageEvents.filter((row) => row.userId === userId)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-}
-
-export function listAccountUsage(): UsageRecord[] {
-  return load()
-    .usageEvents.slice()
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 

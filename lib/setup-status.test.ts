@@ -11,8 +11,7 @@ import {
 } from "@/lib/setup-status";
 
 const SETUP_ENV_KEYS = [
-  "ALLOWED_SIGNUP_EMAILS",
-  "ALLOWED_SIGNUP_DOMAINS",
+  "OWNER_EMAIL",
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
   "AI_GATEWAY_API_KEY",
@@ -23,7 +22,6 @@ const SETUP_ENV_KEYS = [
   "OPENAI_API_KEY",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
-  "ALLOWED_ACCOUNT_USAGE_EMAILS",
   "VERCEL",
   "NODE_ENV",
 ] as const;
@@ -78,7 +76,7 @@ describe("isCanonicalProductionAuthUrl", () => {
 describe("getSetupStatus", () => {
   it("starts incomplete on a fresh local clone", () => {
     const status = getSetupStatus();
-    expect(status.allowlist).toBe(false);
+    expect(status.owner).toBe(false);
     expect(status.authSecret).toBe(false);
     expect(status.authUrl).toBe(true);
     expect(status.aiGateway).toBe(false);
@@ -87,7 +85,6 @@ describe("getSetupStatus", () => {
     expect(status.hosted).toBe(false);
     expect(status.voice).toBe(false);
     expect(status.inbox).toBe(false);
-    expect(status.accountUsage).toBe(false);
     expect(status.canWriteLocalEnv).toBe(true);
     expect(isSetupScreenVisible(status)).toBe(true);
   });
@@ -116,21 +113,16 @@ describe("getSetupStatus", () => {
     expect(getSetupStatus().authUrl).toBe(true);
   });
 
-  it("hides the setup screen once an allowlist email is set", () => {
-    process.env.ALLOWED_SIGNUP_EMAILS = "you@example.com";
+  it("hides the setup screen once OWNER_EMAIL is set", () => {
+    process.env.OWNER_EMAIL = "you@example.com";
     const status = getSetupStatus();
-    expect(status.allowlist).toBe(true);
+    expect(status.owner).toBe(true);
     expect(isSetupScreenVisible(status)).toBe(false);
   });
 
-  it("hides the setup screen once an allowlist domain is set", () => {
-    process.env.ALLOWED_SIGNUP_DOMAINS = "example.com";
-    expect(isSetupScreenVisible()).toBe(false);
-  });
-
-  it("marks account usage when ALLOWED_ACCOUNT_USAGE_EMAILS is set", () => {
-    process.env.ALLOWED_ACCOUNT_USAGE_EMAILS = "you@example.com";
-    expect(getSetupStatus().accountUsage).toBe(true);
+  it("keeps the setup screen when OWNER_EMAIL is blank", () => {
+    process.env.OWNER_EMAIL = "  ";
+    expect(isSetupScreenVisible()).toBe(true);
   });
 });
 
@@ -139,12 +131,12 @@ describe("visibleRequiredSetupSteps", () => {
     expect(visibleRequiredSetupSteps({ hosted: false, authSecret: false })).toEqual([
       "authSecret",
       "aiGateway",
-      "allowlist",
+      "owner",
     ]);
     expect(visibleRequiredSetupSteps({ hosted: false, authSecret: true })).toEqual([
       "authSecret",
       "aiGateway",
-      "allowlist",
+      "owner",
     ]);
     expect(shouldShowRequiredSetupStep("database", { hosted: false, authSecret: true })).toBe(false);
     expect(shouldShowRequiredSetupStep("hosted", { hosted: false, authSecret: true })).toBe(false);
@@ -155,7 +147,7 @@ describe("visibleRequiredSetupSteps", () => {
       "authUrl",
       "database",
       "blob",
-      "allowlist",
+      "owner",
     ]);
     expect(shouldShowRequiredSetupStep("aiGateway", { hosted: true, authSecret: true })).toBe(false);
     expect(shouldShowRequiredSetupStep("hosted", { hosted: true, authSecret: true })).toBe(false);
@@ -167,7 +159,7 @@ describe("visibleRequiredSetupSteps", () => {
       "authUrl",
       "database",
       "blob",
-      "allowlist",
+      "owner",
     ]);
   });
 });
@@ -180,14 +172,14 @@ describe("nextOpenRequiredSetupStep", () => {
     authUrl: false,
     database: false,
     blob: false,
-    allowlist: false,
+    owner: false,
   } as const;
 
   it("opens AI Gateway after the secret on a local clone", () => {
     expect(nextOpenRequiredSetupStep({ ...incomplete, authSecret: true })).toBe("aiGateway");
   });
 
-  it("opens the public URL after the secret on Vercel, not the allowlist", () => {
+  it("opens the public URL after the secret on Vercel, not the owner step", () => {
     expect(
       nextOpenRequiredSetupStep({
         ...incomplete,

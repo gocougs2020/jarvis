@@ -1,16 +1,7 @@
 import { NextResponse } from "next/server";
-import { canViewAccountUsage } from "@/lib/access";
 import { requireApiSession } from "@/lib/api";
-import { listAppUsers } from "@/lib/email-users";
 import { extrasTotals, summarizeUsageRecords, toUsagePageSnapshot } from "@/lib/usage";
-import {
-  getChat,
-  listAccountChats,
-  listAccountUsage,
-  listChatUsage,
-  listChats,
-  listUserUsage,
-} from "@/lib/store";
+import { getChat, listChatUsage, listChats, listUserUsage } from "@/lib/store";
 
 export async function GET(request: Request) {
   const { session, error } = await requireApiSession(request);
@@ -29,20 +20,6 @@ export async function GET(request: Request) {
       totals: summary.totals,
       byPurpose: summary.byPurpose,
     });
-  }
-
-  if (url.searchParams.get("scope") === "account") {
-    if (!canViewAccountUsage(session.user.email)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    const [records, chats, users] = await Promise.all([
-      listAccountUsage(),
-      listAccountChats(),
-      listAppUsers(),
-    ]);
-    return NextResponse.json(
-      toUsagePageSnapshot(records, chats, { users, includeSessions: false }),
-    );
   }
 
   const [records, chats] = await Promise.all([

@@ -24,19 +24,8 @@ export function parseAddressList(
     .filter((entry) => entry.includes("@"));
 }
 
-export async function listAppUsers(): Promise<AppUser[]> {
-  if (hasNeon()) {
-    return getNeonDb()
-      .select({ id: pgUser.id, email: pgUser.email, name: pgUser.name })
-      .from(pgUser);
-  }
-  return getSqliteDb()
-    .select({ id: sqliteUser.id, email: sqliteUser.email, name: sqliteUser.name })
-    .from(sqliteUser);
-}
-
-/** The workspace owner: the first account created. This app is one person's agent. */
-export async function workspaceOwner(): Promise<AppUser | null> {
+/** The first account created, or null. `lib/owner.ts` decides who the owner is. */
+export async function oldestUser(): Promise<AppUser | null> {
   if (hasNeon()) {
     const [row] = await getNeonDb()
       .select({ id: pgUser.id, email: pgUser.email, name: pgUser.name })
@@ -53,22 +42,24 @@ export async function workspaceOwner(): Promise<AppUser | null> {
   return rows[0] ?? null;
 }
 
-/**
- * Who mail to the agent address belongs to: the account whose email sent
- * it, or else the workspace owner. `fromAccount` is true only in the first
- * case; From is spoofable, so callers still check sender authentication
- * before acting on it.
- */
-export async function inboundMailOwner(
-  fromAddress: string | null | undefined,
-): Promise<{ user: AppUser; fromAccount: boolean } | null> {
-  const from = fromAddress ? normalizeEmailAddress(fromAddress) : "";
-  if (from) {
-    const sender = (await listAppUsers()).find((user) => normalizeEmailAddress(user.email) === from);
-    if (sender) return { user: sender, fromAccount: true };
+/** Account lookup by (normalized) email. Emails are stored lowercase by better-auth. */
+export async function findUserByEmail(email: string): Promise<AppUser | null> {
+  const normalized = normalizeEmailAddress(email);
+  if (!normalized) return null;
+  if (hasNeon()) {
+    const [row] = await getNeonDb()
+      .select({ id: pgUser.id, email: pgUser.email, name: pgUser.name })
+      .from(pgUser)
+      .where(eq(pgUser.email, normalized))
+      .limit(1);
+    return row ?? null;
   }
-  const owner = await workspaceOwner();
-  return owner ? { user: owner, fromAccount: false } : null;
+  const rows = await getSqliteDb()
+    .select({ id: sqliteUser.id, email: sqliteUser.email, name: sqliteUser.name })
+    .from(sqliteUser)
+    .where(eq(sqliteUser.email, normalized))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function findUserById(userId: string): Promise<AppUser | null> {

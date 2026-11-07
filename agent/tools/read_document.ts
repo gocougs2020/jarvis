@@ -15,12 +15,12 @@ export default defineTool({
     const document = await getUserDocument(user.userId, input.id);
     if (!isTextDocumentKind(document.kind)) {
       return {
-        document: toClientDocument(document, [], user.userId),
+        document: toClientDocument(document, []),
         content: null,
         note: "This file is not text. Open the file link to view or download it.",
       };
     }
     const content = await readDocumentText(document);
-    return { document: toClientDocument(document, [], user.userId), content };
+    return { document: toClientDocument(document, []), content };
   },
 });

@@ -44,7 +44,7 @@ export function SetupChecklist({
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
   const [secret, setSecret] = useState("");
-  const [allowlistEmail, setAllowlistEmail] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<"generate" | "save-secret" | "save-email" | "refresh" | null>(
     null,
@@ -67,7 +67,7 @@ export function SetupChecklist({
       if (!response.ok) throw new Error("Could not refresh the checklist.");
       const payload = (await response.json()) as { status: SetupStatus };
       setStatus(payload.status);
-      if (payload.status.allowlist) {
+      if (payload.status.owner) {
         router.refresh();
       }
     } catch (caught) {
@@ -95,18 +95,19 @@ export function SetupChecklist({
     return payload;
   }
 
-  const allowlistStep = (
+  const ownerStep = (
     <SetupStep
-      done={status.allowlist}
-      id="allowlist"
+      done={status.owner}
+      id="owner"
       last
-      open={openId === "allowlist"}
-      onOpen={() => setOpenId("allowlist")}
-      title="Lock who can sign in"
+      open={openId === "owner"}
+      onOpen={() => setOpenId("owner")}
+      title="Name the owner"
     >
       <p>
-        Do this last. Until you add an email or domain, anyone who finds the site can create an
-        account and spend your AI budget. After you add one, this setup page disappears.
+        Do this last. Jarvis has exactly one account: yours. Only this email can create it and
+        sign in, so nobody else who finds the site can use your AI budget. After you save it,
+        this setup page disappears and you can create your account.
       </p>
       {status.canWriteLocalEnv ? (
         <form
@@ -116,11 +117,11 @@ export function SetupChecklist({
             setBusy("save-email");
             setError(undefined);
             void postSetup({
-              action: "save-allowlist-email",
-              email: allowlistEmail,
+              action: "save-owner-email",
+              email: ownerEmail,
             })
               .then((payload) => {
-                if (payload.status?.allowlist) {
+                if (payload.status?.owner) {
                   router.refresh();
                 }
               })
@@ -133,37 +134,35 @@ export function SetupChecklist({
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor="setup-allowlist-email">Your email</Label>
+            <Label htmlFor="setup-owner-email">Your email</Label>
             <Input
               autoComplete="email"
-              id="setup-allowlist-email"
+              id="setup-owner-email"
               inputMode="email"
-              onChange={(event) => setAllowlistEmail(event.target.value)}
+              onChange={(event) => setOwnerEmail(event.target.value)}
               placeholder="you@example.com"
               required
               spellCheck={false}
               type="email"
-              value={allowlistEmail}
+              value={ownerEmail}
             />
           </div>
           <Button disabled={busy !== null} type="submit">
             Save and hide this page
           </Button>
           <p className="text-muted-foreground text-xs">
-            This writes <code className="font-mono">ALLOWED_SIGNUP_EMAILS</code> into{" "}
+            This writes <code className="font-mono">OWNER_EMAIL</code> into{" "}
             <code className="font-mono">.env.local</code>. Add the same value on Vercel before you
-            share the live URL.
+            deploy.
           </p>
         </form>
       ) : (
         <ol className="list-decimal space-y-1 pl-5">
           <li>Open your Vercel project → Settings → Environment Variables.</li>
           <li>
-            Add <code className="font-mono">ALLOWED_SIGNUP_EMAILS</code> with your email (or{" "}
-            <code className="font-mono">ALLOWED_SIGNUP_DOMAINS</code> with{" "}
-            <code className="font-mono">yourcompany.com</code>).
+            Add <code className="font-mono">OWNER_EMAIL</code> with your email.
           </li>
-          <li>Redeploy, then open the live site. This page should be gone.</li>
+          <li>Redeploy, then open the live site and create your account with that email.</li>
         </ol>
       )}
     </SetupStep>
@@ -173,7 +172,7 @@ export function SetupChecklist({
     <SetupStep
       done={status.authSecret}
       id="authSecret"
-      last={status.hosted ? !show("authUrl") && !show("database") && !show("blob") && !show("allowlist") : !show("aiGateway") && !show("allowlist")}
+      last={status.hosted ? !show("authUrl") && !show("database") && !show("blob") && !show("owner") : !show("aiGateway") && !show("owner")}
       open={openId === "authSecret"}
       onOpen={() => setOpenId("authSecret")}
       title="Create a sign-in secret"
@@ -361,7 +360,7 @@ export function SetupChecklist({
                 <SetupStep
                   done={status.aiGateway}
                   id="aiGateway"
-                  last={!show("allowlist")}
+                  last={!show("owner")}
                   open={openId === "aiGateway"}
                   onOpen={() => setOpenId("aiGateway")}
                   title="Add an AI Gateway key"
@@ -384,7 +383,7 @@ export function SetupChecklist({
                   </ol>
                 </SetupStep>
               ) : null}
-              {show("allowlist") ? allowlistStep : null}
+              {show("owner") ? ownerStep : null}
             </ol>
           </section>
         ) : (
@@ -398,7 +397,7 @@ export function SetupChecklist({
                 <SetupStep
                   done={status.authUrl}
                   id="authUrl"
-                  last={!show("database") && !show("blob") && !show("allowlist")}
+                  last={!show("database") && !show("blob") && !show("owner")}
                   open={openId === "authUrl"}
                   onOpen={() => setOpenId("authUrl")}
                   title="Set the public website address"
@@ -418,7 +417,7 @@ export function SetupChecklist({
                 <SetupStep
                   done={status.database}
                   id="database"
-                  last={!show("blob") && !show("allowlist")}
+                  last={!show("blob") && !show("owner")}
                   open={openId === "database"}
                   onOpen={() => setOpenId("database")}
                   title="Add a Neon database"
@@ -444,7 +443,7 @@ export function SetupChecklist({
                 <SetupStep
                   done={status.blob}
                   id="blob"
-                  last={!show("allowlist")}
+                  last={!show("owner")}
                   open={openId === "blob"}
                   onOpen={() => setOpenId("blob")}
                   title="Add file storage"
@@ -463,7 +462,7 @@ export function SetupChecklist({
                   </ol>
                 </SetupStep>
               ) : null}
-              {show("allowlist") ? allowlistStep : null}
+              {show("owner") ? ownerStep : null}
             </ol>
           </section>
         )}

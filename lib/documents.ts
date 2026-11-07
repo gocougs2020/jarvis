@@ -49,13 +49,7 @@ import type {
   DocumentSearchHit,
   DocumentSearchMatch,
 } from "@/lib/types";
-import {
-  canEditResource,
-  isOwnedBy,
-  isPublicVisibility,
-  resolveFileVisibility,
-  type ResourceVisibility,
-} from "@/lib/visibility";
+import { isPublicVisibility, resolveFileVisibility, type ResourceVisibility } from "@/lib/visibility";
 
 export class DocumentError extends Error {
   constructor(
@@ -70,10 +64,7 @@ export class DocumentError extends Error {
 export function toClientDocument(
   document: DocumentRecord,
   folders: readonly DocumentFolder[] = [],
-  viewerId?: string,
 ): ClientDocument {
-  const owned = viewerId ? isOwnedBy(document, viewerId) : true;
-  const canEdit = viewerId ? canEditResource(document, viewerId) : true;
   return {
     id: document.id,
     userId: document.userId,
@@ -91,10 +82,8 @@ export function toClientDocument(
     href: `/files/${document.id}`,
     fileHref: `/api/documents/${document.id}/file`,
     shareUrl: document.isPublic ? `/d/${document.shareId}` : null,
-    canEdit,
-    editable: canEdit && isEditableDocumentKind(document.kind),
+    editable: isEditableDocumentKind(document.kind),
     folderPath: folderPathLabel(folders, document.folderId),
-    owned,
   };
 }
 
@@ -194,13 +183,7 @@ export async function updateUserDocument(
 ): Promise<DocumentRecord> {
   const current = await getDocument(userId, documentId);
   if (!current) throw new DocumentError("Document not found.", 404);
-  if (!canEditResource(current, userId)) {
-    throw new DocumentError("You cannot change this file.", 403);
-  }
   const changingShare = patch.visibility !== undefined || patch.isPublic !== undefined;
-  if (changingShare && !isOwnedBy(current, userId)) {
-    throw new DocumentError("Only the owner can change who this file is shared with.", 403);
-  }
   const visibility = changingShare
     ? resolveFileVisibility({
         currentVisibility: current.visibility,
@@ -258,9 +241,6 @@ export async function updateUserDocument(
 export async function deleteUserDocument(userId: string, documentId: string): Promise<void> {
   const current = await getDocument(userId, documentId);
   if (!current) throw new DocumentError("Document not found.", 404);
-  if (!isOwnedBy(current, userId)) {
-    throw new DocumentError("You can only delete files you created.", 403);
-  }
   const document = await deleteDocument(userId, documentId);
   if (!document) throw new DocumentError("Document not found.", 404);
   await Promise.all([
@@ -290,7 +270,7 @@ export async function listUserDocuments(userId: string, chatId?: string) {
     chatId ? listChatDocuments(userId, chatId) : listDocuments(userId),
     listFolders(userId),
   ]);
-  return documents.map((document) => toClientDocument(document, folders, userId));
+  return documents.map((document) => toClientDocument(document, folders));
 }
 
 export type DocumentLibrary = {
@@ -322,13 +302,13 @@ export async function getDocumentLibrary(
   );
   const fileCounts = folderFileCounts(folders, documents);
   const asClientFolder = (folder: DocumentFolder) =>
-    toClientFolder(folder, folders, fileCounts.get(folder.id) ?? 0, userId);
+    toClientFolder(folder, folders, fileCounts.get(folder.id) ?? 0);
 
   return {
     folder: current ? asClientFolder(current) : null,
     ancestors: folderAncestors(folders, current?.parentId ?? null).map(asClientFolder),
     folders: childFolders.map(asClientFolder),
-    documents: visibleDocuments.map((document) => toClientDocument(document, folders, userId)),
+    documents: visibleDocuments.map((document) => toClientDocument(document, folders)),
   };
 }
 
@@ -343,7 +323,7 @@ export async function searchUserLibrary(
   const [documents, folders] = await Promise.all([listDocuments(userId), listFolders(userId)]);
   const fileCounts = folderFileCounts(folders, documents);
   const asClientFolder = (folder: DocumentFolder) =>
-    toClientFolder(folder, folders, fileCounts.get(folder.id) ?? 0, userId);
+    toClientFolder(folder, folders, fileCounts.get(folder.id) ?? 0);
   const needle = trimmed.toLowerCase();
   const hits = new Map<string, DocumentSearchHit>();
 
@@ -365,7 +345,7 @@ export async function searchUserLibrary(
           type: "document",
           score,
           match: "name",
-          document: toClientDocument(document, folders, userId),
+          document: toClientDocument(document, folders),
         },
         `document:${document.id}`,
       );
@@ -399,7 +379,6 @@ export async function searchUserLibrary(
         userId,
         queryEmbeddings: [embedding],
         kinds: LIBRARY_EMBEDDING_KINDS,
-        includeSourceIds: [...documents.map((document) => document.id), ...folders.map((folder) => folder.id)],
         limit: Math.max(limit * 2, 24),
         minScore: DOCUMENT_SEARCH_MIN_SCORE,
       });
@@ -429,7 +408,7 @@ export async function searchUserLibrary(
             type: "document",
             score: hit.score,
             match,
-            document: toClientDocument(document, folders, userId),
+            document: toClientDocument(document, folders),
           },
           `document:${document.id}`,
         );
@@ -460,7 +439,7 @@ export async function documentWithChats(userId: string, documentId: string) {
     listDocumentChats(userId, documentId),
     listFolders(userId),
   ]);
-  return { document: toClientDocument(document, folders, userId), chats };
+  return { document: toClientDocument(document, folders), chats };
 }
 
 async function resolveFolderId(userId: string, folderId?: string | null): Promise<string | null> {

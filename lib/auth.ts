@@ -2,11 +2,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import {
-  ACCESS_DENIED_MESSAGE,
-  isAccessEmailAllowed,
-  SIGNUP_NOT_ALLOWED_MESSAGE,
-} from "@/lib/access";
+import { ACCESS_DENIED_MESSAGE, canCreateAccount, isOwnerEmail } from "@/lib/owner";
 import { getNeonDb, getSqliteDb, hasNeon } from "@/lib/db";
 import { pgAuthSchema, sqliteAuthSchema } from "@/lib/db/schema";
 import { sendVerificationEmail, VERIFY_EMAIL_EXPIRES_IN_SECONDS } from "@/lib/auth-email";
@@ -72,17 +68,20 @@ function createAuth() {
     },
     plugins: [nextCookies()],
     hooks: {
+      // One account: the owner (lib/owner.ts). Checked at every entry point:
+      // the API before and after, the user row insert, and each new session.
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.path === "/sign-up/email") {
           const email = typeof ctx.body?.email === "string" ? ctx.body.email : "";
-          if (!isAccessEmailAllowed(email)) {
-            throw new APIError("FORBIDDEN", { message: SIGNUP_NOT_ALLOWED_MESSAGE });
+          const decision = await canCreateAccount(email);
+          if (!decision.ok) {
+            throw new APIError("FORBIDDEN", { message: decision.message });
           }
           return;
         }
         if (ctx.path === "/sign-in/email") {
           const email = typeof ctx.body?.email === "string" ? ctx.body.email : "";
-          if (!isAccessEmailAllowed(email)) {
+          if (!(await isOwnerEmail(email))) {
             throw new APIError("FORBIDDEN", { message: ACCESS_DENIED_MESSAGE });
           }
         }
@@ -95,7 +94,10 @@ function createAuth() {
             ? (returned as { user?: unknown }).user
             : undefined,
         );
-        if (email && !isAccessEmailAllowed(email)) {
+        // A sign-up response carries the account just created; it is checked
+        // in user.create.before instead (before it exists, it is not the owner yet).
+        if (ctx.path === "/sign-up/email") return;
+        if (email && !(await isOwnerEmail(email))) {
           throw new APIError("FORBIDDEN", { message: ACCESS_DENIED_MESSAGE });
         }
       }),
@@ -104,8 +106,9 @@ function createAuth() {
       user: {
         create: {
           before: async (user: { email: string }) => {
-            if (!isAccessEmailAllowed(user.email)) {
-              throw new APIError("FORBIDDEN", { message: SIGNUP_NOT_ALLOWED_MESSAGE });
+            const decision = await canCreateAccount(user.email);
+            if (!decision.ok) {
+              throw new APIError("FORBIDDEN", { message: decision.message });
             }
             return { data: user };
           },
@@ -115,7 +118,7 @@ function createAuth() {
         create: {
           before: async (session: { userId: string }) => {
             const user = await findUserById(session.userId);
-            if (user && !isAccessEmailAllowed(user.email)) {
+            if (user && !(await isOwnerEmail(user.email))) {
               throw new APIError("FORBIDDEN", { message: ACCESS_DENIED_MESSAGE });
             }
             return true;
@@ -156,7 +159,7 @@ export async function sessionIfAllowed<T extends { user: { email: string } } | n
   headers?: Headers,
 ): Promise<T | null> {
   if (!session) return null;
-  if (isAccessEmailAllowed(session.user.email)) return session;
+  if (await isOwnerEmail(session.user.email)) return session;
   if (headers) {
     try {
       await getAuth().api.signOut({ headers });

@@ -9,7 +9,6 @@ import {
   updateFolder,
 } from "@/lib/store";
 import type { ClientFolder, DocumentFolder, DocumentRecord } from "@/lib/types";
-import { isOwnedBy, normalizeVisibility, type ResourceVisibility } from "@/lib/visibility";
 
 export function folderHref(folderId?: string | null): string {
   return folderId ? `/files?folder=${folderId}` : "/files";
@@ -76,7 +75,6 @@ export function toClientFolder(
   folder: DocumentFolder,
   folders: readonly DocumentFolder[] = [],
   fileCount = 0,
-  viewerId?: string,
 ): ClientFolder {
   const ancestors = folderAncestors(folders, folder.parentId);
   return {
@@ -84,13 +82,11 @@ export function toClientFolder(
     parentId: folder.parentId,
     name: folder.name,
     description: folder.description,
-    visibility: folder.visibility,
     createdAt: folder.createdAt,
     updatedAt: folder.updatedAt,
     href: folderHref(folder.id),
     path: [...ancestors, folder].map((item) => item.name).join(" / "),
     fileCount,
-    owned: viewerId ? isOwnedBy(folder, viewerId) : true,
   };
 }
 
@@ -122,7 +118,6 @@ export async function createUserFolder(
     name: string;
     description?: string;
     parentId?: string | null;
-    visibility?: ResourceVisibility;
   },
 ): Promise<DocumentFolder> {
   const name = input.name.trim();
@@ -141,7 +136,7 @@ export async function createUserFolder(
     parentId,
     name,
     description: input.description?.trim() ?? "",
-    visibility: normalizeVisibility(input.visibility, "private"),
+    visibility: "private",
     createdAt: stamp,
     updatedAt: stamp,
   });
@@ -156,14 +151,10 @@ export async function updateUserFolder(
     name?: string;
     description?: string;
     parentId?: string | null;
-    visibility?: ResourceVisibility;
   },
 ): Promise<DocumentFolder> {
   const current = await getFolder(userId, folderId);
   if (!current) throw new DocumentFolderError("Folder not found.", 404);
-  if (!isOwnedBy(current, userId)) {
-    throw new DocumentFolderError("You can only change folders you created.", 403);
-  }
 
   const nextParentId = patch.parentId === undefined ? current.parentId : patch.parentId;
   if (nextParentId) {
@@ -179,7 +170,6 @@ export async function updateUserFolder(
     name: patch.name?.trim() || current.name,
     description: patch.description === undefined ? current.description : patch.description.trim(),
     parentId: nextParentId,
-    visibility: patch.visibility ?? current.visibility,
   });
   if (!next) throw new DocumentFolderError("Folder not found.", 404);
   if (patch.name !== undefined || patch.description !== undefined) {
@@ -191,9 +181,6 @@ export async function updateUserFolder(
 export async function deleteUserFolder(userId: string, folderId: string): Promise<void> {
   const current = await getFolder(userId, folderId);
   if (!current) throw new DocumentFolderError("Folder not found.", 404);
-  if (!isOwnedBy(current, userId)) {
-    throw new DocumentFolderError("You can only delete folders you created.", 403);
-  }
   const folder = await deleteFolder(userId, folderId);
   if (!folder) throw new DocumentFolderError("Folder not found.", 404);
   await deleteEmbeddingsForSource(userId, "folder", folderId);

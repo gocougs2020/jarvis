@@ -24,10 +24,10 @@ export default defineTool({
       .optional()
       .describe("Deprecated. Use visibility: public to create a public internet share link."),
     visibility: z
-      .enum(["private", "shared", "public"])
+      .enum(["private", "public"])
       .optional()
       .describe(
-        "private (default) is only this user. shared lets everyone on this app view and edit. public is shared plus a public internet link.",
+        "private (default) keeps the file to the owner. public also gives it a link anyone on the internet can open.",
       ),
     folderId: z
       .string()
@@ -54,6 +54,6 @@ export default defineTool({
       title: input.title,
     });
     workspace.update((state) => ({ ...state, activeDocumentId: document.id }));
-    return toClientDocument(document, [], user.userId);
+    return toClientDocument(document, []);
   },
 });

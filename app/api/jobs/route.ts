@@ -8,7 +8,7 @@ import {
   resolveHostSchedulePlan,
   SUB_DAILY_SCHEDULE_MESSAGE,
 } from "@/lib/vercel-plan";
-import { isOwnedBy, isResourceVisibility } from "@/lib/visibility";
+import { isOwnedBy } from "@/lib/visibility";
 
 export async function GET(request: Request) {
   const { session, error } = await requireApiSession(request);
@@ -28,7 +28,6 @@ export async function POST(request: Request) {
     firstRunAt?: string;
     everyMinutes?: number | null;
     cadence?: unknown;
-    visibility?: string;
   };
   const cadence = body.cadence !== undefined ? parseJobCadence(body.cadence) : null;
   if (body.cadence !== undefined && !cadence) {
@@ -51,7 +50,6 @@ export async function POST(request: Request) {
       cadence: fields?.cadence ?? null,
       authenticator: "better-auth",
       issuer: null,
-      visibility: isResourceVisibility(body.visibility) ? body.visibility : undefined,
     }),
   });
 }
@@ -66,7 +64,6 @@ export async function PATCH(request: Request) {
     everyMinutes?: number | null;
     cadence?: unknown;
     enabled?: boolean;
-    visibility?: string;
   };
   const current = (await listJobs(session.user.id)).find((job) => job.id === body.id);
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -91,7 +88,6 @@ export async function PATCH(request: Request) {
     compactPatch({
       prompt,
       enabled: body.enabled,
-      visibility: isResourceVisibility(body.visibility) ? body.visibility : undefined,
       ...(fields
         ? fields
         : {

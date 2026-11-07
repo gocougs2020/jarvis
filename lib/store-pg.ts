@@ -67,12 +67,7 @@ import {
   releasedJobFields,
   toIso,
 } from "@/lib/store-logic";
-import {
-  LIBRARY_SHARE_VALUES,
-  isVisibleToViewer,
-  normalizeLibraryVisibility,
-  normalizeVisibility,
-} from "@/lib/visibility";
+import { normalizeLibraryVisibility, normalizeVisibility } from "@/lib/visibility";
 
 export { searchUserEmbeddings } from "@/lib/store-pg-embeddings";
 
@@ -202,11 +197,6 @@ export async function listChats(userId: string): Promise<ChatRecord[]> {
     .from(pgChats)
     .where(eq(pgChats.userId, userId))
     .orderBy(desc(pgChats.updatedAt));
-  return rows.map(mapChat);
-}
-
-export async function listAccountChats(): Promise<ChatRecord[]> {
-  const rows = await getNeonDb().select().from(pgChats).orderBy(desc(pgChats.updatedAt));
   return rows.map(mapChat);
 }
 
@@ -583,7 +573,7 @@ export async function listDocuments(userId: string): Promise<DocumentRecord[]> {
   const rows = await getNeonDb()
     .select()
     .from(pgDocuments)
-    .where(or(eq(pgDocuments.userId, userId), inArray(pgDocuments.visibility, LIBRARY_SHARE_VALUES)))
+    .where(eq(pgDocuments.userId, userId))
     .orderBy(desc(pgDocuments.updatedAt));
   return rows.map(mapDocument);
 }
@@ -592,9 +582,7 @@ export async function listFolders(userId: string): Promise<DocumentFolder[]> {
   const rows = await getNeonDb()
     .select()
     .from(pgDocumentFolders)
-    .where(
-      or(eq(pgDocumentFolders.userId, userId), inArray(pgDocumentFolders.visibility, LIBRARY_SHARE_VALUES)),
-    )
+    .where(eq(pgDocumentFolders.userId, userId))
     .orderBy(pgDocumentFolders.name);
   return rows.map(mapFolder);
 }
@@ -603,11 +591,9 @@ export async function getFolder(userId: string, folderId: string): Promise<Docum
   const [row] = await getNeonDb()
     .select()
     .from(pgDocumentFolders)
-    .where(eq(pgDocumentFolders.id, folderId))
+    .where(and(eq(pgDocumentFolders.userId, userId), eq(pgDocumentFolders.id, folderId)))
     .limit(1);
-  if (!row) return null;
-  const folder = mapFolder(row);
-  return isVisibleToViewer(folder, userId) ? folder : null;
+  return row ? mapFolder(row) : null;
 }
 
 export async function createFolder(record: DocumentFolder): Promise<DocumentFolder> {
@@ -662,11 +648,9 @@ export async function getDocument(userId: string, documentId: string): Promise<D
   const [row] = await getNeonDb()
     .select()
     .from(pgDocuments)
-    .where(eq(pgDocuments.id, documentId))
+    .where(and(eq(pgDocuments.userId, userId), eq(pgDocuments.id, documentId)))
     .limit(1);
-  if (!row) return null;
-  const document = mapDocument(row);
-  return isVisibleToViewer(document, userId) ? document : null;
+  return row ? mapDocument(row) : null;
 }
 
 export async function getPublicDocument(shareId: string): Promise<DocumentRecord | null> {
@@ -723,7 +707,7 @@ export async function updateDocument(
   const [row] = await getNeonDb()
     .update(pgDocuments)
     .set({ ...patch, updatedAt: nowDate() })
-    .where(eq(pgDocuments.id, documentId))
+    .where(and(eq(pgDocuments.userId, userId), eq(pgDocuments.id, documentId)))
     .returning();
   return row ? mapDocument(row) : null;
 }
@@ -751,7 +735,7 @@ export async function listChatDocuments(userId: string, chatId: string): Promise
     .where(
       and(
         eq(pgDocumentSessions.chatId, chatId),
-        or(eq(pgDocuments.userId, userId), inArray(pgDocuments.visibility, LIBRARY_SHARE_VALUES)),
+        eq(pgDocuments.userId, userId),
       ),
     )
     .orderBy(desc(pgDocuments.updatedAt));
@@ -1035,14 +1019,6 @@ export async function listUserUsage(userId: string): Promise<UsageRecord[]> {
     .select()
     .from(pgUsageEvents)
     .where(eq(pgUsageEvents.userId, userId))
-    .orderBy(desc(pgUsageEvents.createdAt));
-  return rows.map(mapUsageRecord);
-}
-
-export async function listAccountUsage(): Promise<UsageRecord[]> {
-  const rows = await getNeonDb()
-    .select()
-    .from(pgUsageEvents)
     .orderBy(desc(pgUsageEvents.createdAt));
   return rows.map(mapUsageRecord);
 }

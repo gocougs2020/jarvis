@@ -1,6 +1,5 @@
 "use client";
 
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -8,38 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { isSharedWithAccount, normalizeVisibility, type ResourceVisibility } from "@/lib/visibility";
-
-export function VisibilityToggle({
-  disabled,
-  id,
-  size = "sm",
-  value,
-  onChange,
-}: {
-  readonly disabled?: boolean;
-  readonly id: string;
-  readonly size?: "sm" | "default";
-  readonly value: ResourceVisibility;
-  readonly onChange: (next: ResourceVisibility) => void;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-foreground">
-      <Label className="text-xs font-medium" htmlFor={id}>
-        Shared
-      </Label>
-      <Switch
-        aria-label="Share with everyone on this app"
-        checked={isSharedWithAccount(value)}
-        disabled={disabled}
-        id={id}
-        size={size}
-        onCheckedChange={(checked) => onChange(checked ? "shared" : "private")}
-      />
-    </span>
-  );
-}
+import { normalizeVisibility, type ResourceVisibility } from "@/lib/visibility";
 
 const FILE_VISIBILITY_OPTIONS: {
   readonly value: ResourceVisibility;
@@ -47,8 +15,7 @@ const FILE_VISIBILITY_OPTIONS: {
   readonly hint: string;
 }[] = [
   { value: "private", label: "Private", hint: "Only you and your sessions" },
-  { value: "shared", label: "Shared", hint: "Everyone on this app can view and edit" },
-  { value: "public", label: "Public", hint: "Shared, plus a public internet link" },
+  { value: "public", label: "Public", hint: "Anyone with the link can view it" },
 ];
 
 export function FileVisibilitySelect({
@@ -99,7 +66,5 @@ export function FileVisibilitySelect({
 
 export function visibilityBadgeLabel(visibility: ResourceVisibility): string | null {
   const value = normalizeVisibility(visibility);
-  if (value === "public") return "Public";
-  if (value === "shared") return "Shared";
-  return null;
+  return value === "public" ? "Public" : null;
 }

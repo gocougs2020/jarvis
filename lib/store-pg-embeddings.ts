@@ -1,4 +1,4 @@
-import { and, cosineDistance, eq, inArray, notInArray, or, sql } from "drizzle-orm";
+import { and, cosineDistance, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getNeonDb } from "@/lib/db";
 import { pgEmbeddings } from "@/lib/db/schema";
 import {
@@ -34,17 +34,7 @@ async function searchUserEmbeddingsForQuery(
 ): Promise<EmbeddingSearchHit[]> {
   const distance = cosineDistance(pgEmbeddings.embedding, query);
   const similarity = sql<number>`1 - (${distance})`;
-  const filters =
-    input.scope === "account"
-      ? []
-      : [
-          or(
-            eq(pgEmbeddings.userId, input.userId),
-            input.includeSourceIds?.length
-              ? inArray(pgEmbeddings.sourceId, [...input.includeSourceIds])
-              : sql`false`,
-          ),
-        ];
+  const filters = [eq(pgEmbeddings.userId, input.userId)];
   if (input.kinds && input.kinds.length > 0) {
     filters.push(inArray(pgEmbeddings.kind, [...input.kinds]));
   }

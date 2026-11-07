@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!canWriteLocalEnv() || getSetupStatus().allowlist) {
+  if (!canWriteLocalEnv() || getSetupStatus().owner) {
     return NextResponse.json(
       { error: "This computer cannot save settings into .env.local." },
       { status: 403 },
@@ -69,12 +69,12 @@ export async function POST(request: Request) {
     });
   }
 
-  if (action === "save-allowlist-email") {
+  if (action === "save-owner-email") {
     const email = normalizeEmailAddress(body.email ?? "");
     if (!looksLikeEmail(email)) {
       return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     }
-    writeLocalEnv("ALLOWED_SIGNUP_EMAILS", email);
+    writeLocalEnv("OWNER_EMAIL", email);
     return NextResponse.json({
       saved: true,
       status: getSetupStatus(),

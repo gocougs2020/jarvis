@@ -93,7 +93,7 @@ export default defineTool({
             mimeType: image.mediaType,
             title: prompt.slice(0, 72) || image.filename,
           });
-          const client = toClientDocument(document, [], user.userId);
+          const client = toClientDocument(document, []);
           return { href: client.href, id: client.id, title: client.title };
         }),
       );

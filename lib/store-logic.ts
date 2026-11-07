@@ -397,9 +397,7 @@ export function embeddingMatchesSearch(
 ): boolean {
   if (input.kinds && !input.kinds.includes(row.kind as EmbeddingKind)) return false;
   if (input.excludeSourceIds?.includes(row.sourceId)) return false;
-  if (input.scope === "account") return true;
-  if (row.userId === input.userId) return true;
-  return Boolean(input.includeSourceIds?.includes(row.sourceId));
+  return row.userId === input.userId;
 }
 
 export function rankEmbeddingHits(

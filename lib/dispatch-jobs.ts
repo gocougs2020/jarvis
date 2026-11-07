@@ -2,6 +2,7 @@ import { Client } from "eve/client";
 import { hasNeon } from "@/lib/db";
 import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import { findUserById } from "@/lib/email-users";
+import { ownerAccount } from "@/lib/owner";
 import { reminderContextForDispatch } from "@/lib/reminder-context";
 import {
   isNudgeReminderSchedule,
@@ -167,6 +168,11 @@ async function finishDispatchedJob(job: ScheduledJob): Promise<void> {
   }
 }
 
+export const NOT_OWNER_JOB_ERROR =
+  "Paused: this schedule belongs to an account that can no longer sign in. Only the owner's schedules run.";
+const NO_OWNER_YET_ERROR = "Waiting for the owner account (set OWNER_EMAIL), then this schedule runs.";
+const NO_OWNER_RETRY_MS = 60 * 60_000;
+
 export async function dispatchClaimedJobs(
   jobs: readonly ScheduledJob[],
   startSession: ScheduleStartSession,
@@ -174,8 +180,21 @@ export async function dispatchClaimedJobs(
   let dispatched = 0;
   let failed = 0;
   const errors: string[] = [];
+  // Jarvis is single-user: only the owner's schedules run. Jobs left behind by
+  // other accounts (from a multi-user version) would otherwise keep spending
+  // and mailing unattended after those accounts were locked out.
+  const owner = await ownerAccount();
   await Promise.all(
     jobs.map(async (job) => {
+      if (!owner || job.userId !== owner.id) {
+        failed += 1;
+        const message = owner ? NOT_OWNER_JOB_ERROR : NO_OWNER_YET_ERROR;
+        errors.push(message);
+        const retryAt = owner ? null : new Date(Date.now() + NO_OWNER_RETRY_MS);
+        await releaseJob(job, message, retryAt, Boolean(owner));
+        console.warn("[schedule] skipped job not owned by the owner", { jobId: job.id, ownerKnown: Boolean(owner) });
+        return;
+      }
       let started = false;
       try {
         const chat = await prepareScheduleChat(job);

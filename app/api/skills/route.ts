@@ -8,7 +8,7 @@ import {
   listUserSkills,
   updateUserSkill,
 } from "@/lib/store";
-import { isOwnedBy, isResourceVisibility } from "@/lib/visibility";
+import { isOwnedBy } from "@/lib/visibility";
 
 export async function GET(request: Request) {
   const { session, error } = await requireApiSession(request);
@@ -25,14 +25,13 @@ export async function POST(request: Request) {
     description: string;
     markdown: string;
     enabled?: boolean;
-    visibility?: string;
   };
   try {
     return NextResponse.json({
       skill: await createUserSkill(session.user.id, {
         ...wrapUserSkillFields(body),
         enabled: body.enabled,
-        visibility: isResourceVisibility(body.visibility) ? body.visibility : "private",
+        visibility: "private",
       }),
     });
   } catch (skillError) {
@@ -53,7 +52,6 @@ export async function PATCH(request: Request) {
     description?: string;
     markdown?: string;
     enabled?: boolean;
-    visibility?: string;
   };
   const current = (await listUserSkills(session.user.id)).find((skill) => skill.id === body.id);
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -66,8 +64,7 @@ export async function PATCH(request: Request) {
       body.id,
       {
         ...wrapUserSkillPatch(current, body),
-        visibility: isResourceVisibility(body.visibility) ? body.visibility : undefined,
-      },
+        },
     );
     if (!skill) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ skill });

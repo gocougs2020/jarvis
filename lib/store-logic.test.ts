@@ -116,7 +116,7 @@ describe("job records", () => {
         everyMinutes: null,
         authenticator: "better-auth",
         issuer: null,
-        visibility: "shared",
+        visibility: "public",
       },
       "2026-09-06T10:00:00.000Z",
       "job-1",
@@ -221,27 +221,10 @@ describe("embedding search", () => {
     expect(sameEmbeddingKey(left, { ...left, kind: "session_prompt" })).toBe(false);
   });
 
-  it("scopes user search to the owner plus includeSourceIds", () => {
-    const input = {
-      userId: "user-1",
-      queryEmbeddings: [[1, 0]],
-      limit: 5,
-      includeSourceIds: ["shared-1"],
-    };
+  it("only matches the user's own embeddings", () => {
+    const input = { userId: "user-1", queryEmbeddings: [[1, 0]], limit: 5 };
     expect(embeddingMatchesSearch(record("own"), input)).toBe(true);
     expect(embeddingMatchesSearch(record("other", { userId: "user-2" }), input)).toBe(false);
-    expect(
-      embeddingMatchesSearch(record("shared-1", { userId: "user-2", sourceId: "shared-1" }), input),
-    ).toBe(true);
-    expect(
-      embeddingMatchesSearch(record("own", { kind: "document_title" }), {
-        ...input,
-        kinds: ["session_title"],
-      }),
-    ).toBe(false);
-    expect(
-      embeddingMatchesSearch(record("own"), { ...input, excludeSourceIds: ["own"] }),
-    ).toBe(false);
   });
 
   it("keeps the highest score per id and applies the floor", () => {

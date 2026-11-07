@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EXA_SEARCH_MODEL_ID } from "@/lib/model-prices";
 import {
   formatCount,
@@ -20,10 +18,7 @@ import {
   type DailyUsageRow,
   type UsageBreakdownRow,
   type UsagePageSnapshot,
-  type UsageUserRow,
 } from "@/lib/usage";
-
-const usageTabTriggerClassName = "flex-none rounded-none border-none px-0 shadow-none";
 
 function isSearchRow(row: UsageBreakdownRow): boolean {
   return row.key === "web_search" || row.key === EXA_SEARCH_MODEL_ID;
@@ -162,65 +157,10 @@ function UsageTotalsGrid({ data }: { readonly data: UsagePageSnapshot }) {
   );
 }
 
-function PeopleTable({ rows }: { readonly rows: readonly UsageUserRow[] }) {
-  if (rows.length === 0) {
-    return <p className="text-muted-foreground text-sm">No people recorded yet.</p>;
-  }
-  return (
-    <div className="overflow-hidden rounded-xl border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Person</TableHead>
-            <TableHead className="text-right">Sessions</TableHead>
-            <TableHead className="text-right">Turns</TableHead>
-            <TableHead className="text-right">Tokens</TableHead>
-            <TableHead className="text-right">Cost</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.userId}>
-              <TableCell>
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{row.name}</p>
-                  {row.email ? (
-                    <p className="truncate text-muted-foreground text-xs">{row.email}</p>
-                  ) : null}
-                </div>
-              </TableCell>
-              <TableCell className="text-right tabular-nums">{formatCount(row.sessions)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCount(row.turns)}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatTokenCount(row.totals.inputTokens + row.totals.outputTokens)}
-              </TableCell>
-              <TableCell className="text-right font-medium tabular-nums">
-                {formatUsd(row.totals.costUsd)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function UsageBreakdown({
-  data,
-  showPeople,
-}: {
-  readonly data: UsagePageSnapshot;
-  readonly showPeople?: boolean;
-}) {
+function UsageBreakdown({ data }: { readonly data: UsagePageSnapshot }) {
   return (
     <div className="flex flex-col gap-6">
       <UsageTotalsGrid data={data} />
-      {showPeople ? (
-        <section className="space-y-2">
-          <h2 className="font-medium text-sm">By person</h2>
-          <PeopleTable rows={data.byUser} />
-        </section>
-      ) : null}
       <section className="space-y-3">
         <div className="space-y-1">
           <h2 className="font-medium text-sm">By day</h2>
@@ -285,16 +225,7 @@ function UsageBreakdown({
   );
 }
 
-export function UsagePanel({
-  you,
-  account,
-}: {
-  readonly you: UsagePageSnapshot;
-  readonly account?: UsagePageSnapshot;
-}) {
-  const showAccount = Boolean(account);
-  const [view, setView] = useState<"you" | "account">(showAccount ? "account" : "you");
-
+export function UsagePanel({ you }: { readonly you: UsagePageSnapshot }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background pb-[env(safe-area-inset-bottom)]">
       <AppHeader />
@@ -307,31 +238,7 @@ export function UsagePanel({
             Hosting, database, and object storage costs are not included.
           </p>
         </div>
-        {account ? (
-          <Tabs
-            value={view}
-            onValueChange={(value) => {
-              setView(value === "account" ? "account" : "you");
-            }}
-          >
-            <TabsList className="h-auto flex-wrap gap-5 p-0" variant="line">
-              <TabsTrigger className={usageTabTriggerClassName} value="account">
-                Account
-              </TabsTrigger>
-              <TabsTrigger className={usageTabTriggerClassName} value="you">
-                You
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent className="mt-6" value="account">
-              <UsageBreakdown data={account} showPeople />
-            </TabsContent>
-            <TabsContent className="mt-6" value="you">
-              <UsageBreakdown data={you} />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <UsageBreakdown data={you} />
-        )}
+        <UsageBreakdown data={you} />
       </main>
     </div>
   );
