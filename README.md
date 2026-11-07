@@ -43,7 +43,7 @@ Jarvis is built on the open-source [eve](https://eve.dev) agent framework. You c
 
 **Jarvis is one person's agent.** There is exactly one account, the owner, named by `OWNER_EMAIL`. Nobody else can create an account or sign in, and everything (files, chats, memory, schedules, mail) belongs to that one account.
 
-**How to hide the home setup screen.** Until you set `OWNER_EMAIL`, the home page is a setup checklist — locally and on the live site — and nobody can create an account on a hosted deploy. Completing the other steps (secret, Gateway, Neon, Blob) does not dismiss it. Add your email, restart `npm run dev` (or redeploy on Vercel), and that home-page checklist is gone. See [Name the owner](#name-the-owner). After you sign in, **Settings → Setup** still shows what’s left (voice, Inbox, and any unfinished host settings). To hide or delete that signed-in page, see [Remove the in-app setup page](#remove-the-in-app-setup-page).
+**How to hide the home setup screen.** Until you set `OWNER_EMAIL`, the home page is a setup checklist — locally and on the live site — and nobody can create an account anywhere but `npm run dev`. Completing the other steps (secret, Gateway, Neon, Blob) does not dismiss it. Add your email, restart `npm run dev` (or redeploy on Vercel), and that home-page checklist is gone. See [Name the owner](#name-the-owner). After you sign in, **Settings → Setup** still shows what’s left (voice, Inbox, and any unfinished host settings). To hide or delete that signed-in page, see [Remove the in-app setup page](#remove-the-in-app-setup-page).
 
 ## Quick start
 
@@ -154,9 +154,9 @@ This is the only setting that removes the setup screen. Set `OWNER_EMAIL` to you
 
 - only that address can create the account, sign in, or keep a session;
 - once the account exists, the sign-up page redirects to sign-in;
-- on a hosted deploy without `OWNER_EMAIL`, nobody can create an account at all, so a fresh public URL can't be claimed by whoever finds it first.
+- without `OWNER_EMAIL`, nobody can create an account at all — on Vercel, `npm start`, Docker, or any other host — so a public URL can't be claimed by whoever finds it first.
 
-Locally (`npm run dev`) without `OWNER_EMAIL`, the first sign-up becomes the owner and sign-up closes behind it.
+The one exception is `npm run dev` on your own computer: without `OWNER_EMAIL`, the first sign-up becomes the owner and sign-up closes behind it.
 
 - **On this computer:** enter your email on the last checklist item and click **Save and hide this page**. That writes `OWNER_EMAIL` into `.env.local`. Or add the line yourself, stop the app, and run `npm run dev` again.
 - **On Vercel:** skip this if you already entered it in the Deploy button wizard. Otherwise Settings → Environment Variables → add `OWNER_EMAIL`, then redeploy.
@@ -449,7 +449,7 @@ Copy `.env.example` to `.env.local` (local) or set the same keys on the Vercel p
 
 ### Owner
 
-`OWNER_EMAIL` is the one account that can sign up, sign in, and keep a session. Set it in `.env.local` locally, or on the Vercel project for production and preview. Until it is set, `/` shows **Set up your workspace** instead of chat, and a hosted deploy accepts no sign-ups.
+`OWNER_EMAIL` is the one account that can sign up, sign in, and keep a session. Set it in `.env.local` locally, or on the Vercel project for production and preview. Until it is set, `/` shows **Set up your workspace** instead of chat, and sign-up is closed everywhere except `npm run dev`.
 
 ```bash
 OWNER_EMAIL=you@example.com

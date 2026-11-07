@@ -13,11 +13,11 @@ import {
  * - `OWNER_EMAIL` set: only that address can create the account, sign in,
  *   or keep a session. Any other account in the database (from an older,
  *   multi-user version) is locked out; its rows stay untouched.
- * - On Vercel without `OWNER_EMAIL`: nobody can create an account, and the
- *   home page shows the setup checklist. A fresh public deploy can't be
- *   claimed by whoever finds the URL first.
- * - Locally (`npm run dev`) without it: the first sign-up becomes the
- *   owner and sign-up closes behind it.
+ * - Anywhere else without `OWNER_EMAIL` (Vercel, `next start`, Docker, any
+ *   host): nobody can create an account, and the home page shows the setup
+ *   checklist. A public deploy can't be claimed by whoever finds it first.
+ * - Only under `next dev` (`NODE_ENV=development`, off Vercel) without it:
+ *   the first sign-up becomes the owner and sign-up closes behind it.
  */
 
 export const SIGNUP_NOT_ALLOWED_MESSAGE = "Only the owner's email can create an account on this app.";
@@ -32,9 +32,13 @@ export function configuredOwnerEmail(env: Readonly<Record<string, string | undef
   return value ? normalizeEmailAddress(value) : null;
 }
 
-/** On Vercel the owner must be named up front; locally the first sign-up claims it. */
+/**
+ * The owner must be named up front everywhere except a local `next dev`
+ * process. Fails closed: production builds on any host, tests, and Vercel
+ * (including `vercel dev`) all require OWNER_EMAIL.
+ */
 export function ownerEmailRequired(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-  return Boolean(env.VERCEL);
+  return Boolean(env.VERCEL) || env.NODE_ENV !== "development";
 }
 
 export type SignupDecision = { ok: true } | { ok: false; message: string };

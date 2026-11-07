@@ -9,7 +9,7 @@ The matching git tag is the baseline to sync against. Bump `package.json` when y
 ## Unreleased
 
 Single-user Jarvis
-- Jarvis now has exactly one account, the owner, named by the new `OWNER_EMAIL`. Only that address can create the account, sign in, or keep a session. On Vercel without it, nobody can sign up and the setup checklist stays on `/`; locally without it, the first sign-up becomes the owner. Once the account exists, `/sign-up` redirects to sign-in.
+- Jarvis now has exactly one account, the owner, named by the new `OWNER_EMAIL`. Only that address can create the account, sign in, or keep a session. Without it, nobody can sign up and the setup checklist stays on `/` (any host); only under `npm run dev` does the first sign-up become the owner. Once the account exists, `/sign-up` redirects to sign-in.
 - **Set `OWNER_EMAIL`** to your own address before you deploy this version, then remove `ALLOWED_SIGNUP_EMAILS`, `ALLOWED_SIGNUP_DOMAINS`, `BLOCKED_ACCESS_EMAILS`, and `ALLOWED_ACCOUNT_USAGE_EMAILS`; they are no longer read. Any other account already in the database is locked out; its data stays untouched.
 - Removed sharing between accounts. Files are private or public (`/d/...` link). Folders no longer have a visibility setting. Files and folders marked "shared" read as private; no migration is needed.
 - Removed the Account tab and per-person breakdown on Usage.

@@ -20,6 +20,7 @@ import {
   isOwnerEmailFor,
   OWNER_NOT_CONFIGURED_MESSAGE,
   ownerAccount,
+  ownerEmailRequired,
   resetOwnerCache,
   SIGNUP_CLOSED_MESSAGE,
   SIGNUP_NOT_ALLOWED_MESSAGE,
@@ -33,9 +34,12 @@ function env(): Record<string, string | undefined> {
   return process.env as Record<string, string | undefined>;
 }
 
+const originalNodeEnv = env().NODE_ENV;
+
 afterEach(() => {
   delete env().OWNER_EMAIL;
   delete env().VERCEL;
+  env().NODE_ENV = originalNodeEnv;
   resetOwnerCache();
   vi.clearAllMocks();
 });
@@ -45,6 +49,16 @@ describe("configuredOwnerEmail", () => {
     expect(configuredOwnerEmail({ OWNER_EMAIL: "  Ada <ADA@Example.com> " })).toBe("ada@example.com");
     expect(configuredOwnerEmail({ OWNER_EMAIL: " " })).toBeNull();
     expect(configuredOwnerEmail({})).toBeNull();
+  });
+});
+
+describe("ownerEmailRequired", () => {
+  it("fails closed everywhere except a local next dev process", () => {
+    expect(ownerEmailRequired({ NODE_ENV: "development" })).toBe(false);
+    expect(ownerEmailRequired({ NODE_ENV: "development", VERCEL: "1" })).toBe(true);
+    expect(ownerEmailRequired({ NODE_ENV: "production" })).toBe(true);
+    expect(ownerEmailRequired({ NODE_ENV: "test" })).toBe(true);
+    expect(ownerEmailRequired({})).toBe(true);
   });
 });
 
@@ -107,14 +121,15 @@ describe("owner lookups", () => {
     expect(mocks.oldestUser).not.toHaveBeenCalled();
   });
 
-  it("has no owner on Vercel until OWNER_EMAIL is set", async () => {
-    env().VERCEL = "1";
+  it("has no owner outside next dev until OWNER_EMAIL is set, even off Vercel", async () => {
+    env().NODE_ENV = "production";
     mocks.oldestUser.mockResolvedValue(owner);
     await expect(ownerAccount()).resolves.toBeNull();
     await expect(isOwnerEmail("ada@example.com")).resolves.toBe(false);
   });
 
-  it("locally uses the first account and closes sign-up once it exists", async () => {
+  it("under next dev, uses the first account and closes sign-up once it exists", async () => {
+    env().NODE_ENV = "development";
     mocks.oldestUser.mockResolvedValueOnce(null);
     await expect(canCreateAccount("ada@example.com")).resolves.toEqual({ ok: true });
 
