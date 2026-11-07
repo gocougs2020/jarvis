@@ -66,6 +66,7 @@ import {
   nowIso,
   releasedJobFields,
   toIso,
+  withOwnedParents,
 } from "@/lib/store-logic";
 import { normalizeLibraryVisibility, normalizeVisibility } from "@/lib/visibility";
 
@@ -584,7 +585,7 @@ export async function listFolders(userId: string): Promise<DocumentFolder[]> {
     .from(pgDocumentFolders)
     .where(eq(pgDocumentFolders.userId, userId))
     .orderBy(pgDocumentFolders.name);
-  return rows.map(mapFolder);
+  return withOwnedParents(rows.map(mapFolder));
 }
 
 export async function getFolder(userId: string, folderId: string): Promise<DocumentFolder | null> {

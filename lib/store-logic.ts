@@ -492,3 +492,18 @@ export function newEmailRecord(input: CreateEmailInput, stamp = nowIso()): Email
 export function applyEmailPatch(email: EmailRecord, patch: EmailPatch, stamp = nowIso()): EmailRecord {
   return normalizeEmail({ ...email, ...patch, updatedAt: stamp });
 }
+
+/**
+ * Folders whose parent is not one of these (for example a folder created
+ * inside another account's formerly shared folder) are shown at the library
+ * root, the same way documents in an unknown folder are. Without this they
+ * would be unreachable and could not be renamed.
+ */
+export function withOwnedParents<T extends { readonly id: string; readonly parentId: string | null }>(
+  folders: readonly T[],
+): T[] {
+  const ids = new Set(folders.map((folder) => folder.id));
+  return folders.map((folder) =>
+    folder.parentId && !ids.has(folder.parentId) ? { ...folder, parentId: null } : folder,
+  );
+}

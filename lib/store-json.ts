@@ -60,6 +60,7 @@ import {
   sameCitationKey,
   sameEmbeddingKey,
   scoreEmbeddingRecords,
+  withOwnedParents,
 } from "@/lib/store-logic";
 import { isOwnedBy, normalizeLibraryVisibility, normalizeVisibility } from "@/lib/visibility";
 
@@ -429,9 +430,11 @@ export function listDocuments(userId: string): DocumentRecord[] {
 }
 
 export function listFolders(userId: string): DocumentFolder[] {
-  return load()
-    .documentFolders.filter((folder) => isOwnedBy(folder, userId))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return withOwnedParents(
+    load()
+      .documentFolders.filter((folder) => isOwnedBy(folder, userId))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
 }
 
 export function getFolder(userId: string, folderId: string): DocumentFolder | null {

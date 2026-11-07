@@ -18,6 +18,7 @@ import {
   rankEmbeddingHits,
   sameEmbeddingKey,
   titleFromPrompt,
+  withOwnedParents,
 } from "@/lib/store-logic";
 
 const daily = { kind: "daily" as const, timezone: "UTC", hour: 9, minute: 0 };
@@ -238,5 +239,20 @@ describe("embedding search", () => {
       { minScore: 0.5, limit: 8 },
     );
     expect(ranked.map((hit) => [hit.record.id, hit.score])).toEqual([["a", 0.9]]);
+  });
+});
+
+describe("withOwnedParents", () => {
+  it("moves a folder whose parent is not the owner's to the root and keeps the rest", () => {
+    const folders = [
+      { id: "a", parentId: null },
+      { id: "b", parentId: "a" },
+      { id: "c", parentId: "someone-elses-shared-folder" },
+    ];
+    expect(withOwnedParents(folders)).toEqual([
+      { id: "a", parentId: null },
+      { id: "b", parentId: "a" },
+      { id: "c", parentId: null },
+    ]);
   });
 });

@@ -76,10 +76,13 @@ export function toClientFolder(
   folders: readonly DocumentFolder[] = [],
   fileCount = 0,
 ): ClientFolder {
-  const ancestors = folderAncestors(folders, folder.parentId);
+  // A parent outside the owner's folders shows as the library root.
+  const parentId =
+    folder.parentId && folders.some((item) => item.id === folder.parentId) ? folder.parentId : null;
+  const ancestors = folderAncestors(folders, parentId);
   return {
     id: folder.id,
-    parentId: folder.parentId,
+    parentId,
     name: folder.name,
     description: folder.description,
     createdAt: folder.createdAt,
@@ -156,12 +159,15 @@ export async function updateUserFolder(
   const current = await getFolder(userId, folderId);
   if (!current) throw new DocumentFolderError("Folder not found.", 404);
 
-  const nextParentId = patch.parentId === undefined ? current.parentId : patch.parentId;
+  // listFolders shows a folder whose parent the owner doesn't have at the
+  // root, so keep that placement instead of re-checking the missing parent.
+  const folders = await listFolders(userId);
+  const currentParentId = folders.find((folder) => folder.id === folderId)?.parentId ?? null;
+  const nextParentId = patch.parentId === undefined ? currentParentId : patch.parentId;
   if (nextParentId) {
     const parent = await getFolder(userId, nextParentId);
     if (!parent) throw new DocumentFolderError("Folder not found.", 404);
   }
-  const folders = await listFolders(userId);
   if (wouldCreateFolderCycle(folders, folderId, nextParentId)) {
     throw new DocumentFolderError("A folder cannot be moved into itself.");
   }
