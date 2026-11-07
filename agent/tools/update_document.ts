@@ -10,12 +10,12 @@ export default defineTool({
     id: z.string().min(1),
     title: z.string().min(1).optional(),
     content: z.string().optional().describe("Replacement UTF-8 text for editable files."),
-    isPublic: z.boolean().optional().describe("Deprecated. Use visibility: public or shared."),
+    isPublic: z.boolean().optional().describe("Deprecated. Use visibility: public or private."),
     visibility: z
-      .enum(["private", "shared", "public"])
+      .enum(["private", "public"])
       .optional()
       .describe(
-        "private keeps the file to the owner. shared lets everyone on this app view and edit. public is shared plus a public internet link. Only the owner can change this.",
+        "private keeps the file to the owner. public also gives it a link anyone on the internet can open.",
       ),
     folderId: z
       .string()
@@ -32,6 +32,6 @@ export default defineTool({
       visibility: input.visibility,
       title: input.title,
     });
-    return toClientDocument(document, [], user.userId);
+    return toClientDocument(document, []);
   },
 });

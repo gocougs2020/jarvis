@@ -1,11 +1,11 @@
 import { headers } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { isAccessEmailAllowed } from "@/lib/access";
 import { getAuth } from "@/lib/auth";
 import { VERIFY_EMAIL_CALLBACK_PATH } from "@/lib/auth-email";
 import { authFormErrorMessage, formField } from "@/lib/auth-form";
 import { ensureNeonAuthSchema } from "@/lib/db";
 import { isCrossSiteRequest } from "@/lib/internal-auth";
+import { isOwnerEmail } from "@/lib/owner";
 import { clientKey, RATE_LIMIT_MESSAGE, rateLimit } from "@/lib/rate-limit";
 
 function verificationReturnPath(value: string): "/sign-in" | "/sign-up" {
@@ -30,7 +30,8 @@ export async function POST(request: NextRequest) {
     dest.searchParams.set("error", "Enter the email you used to sign up.");
     return NextResponse.redirect(dest, 303);
   }
-  if (!isAccessEmailAllowed(email)) {
+  // Only the owner has an account; answer the same either way so the form never reveals who that is.
+  if (!(await isOwnerEmail(email))) {
     dest.searchParams.set("checkEmail", "1");
     return NextResponse.redirect(dest, 303);
   }

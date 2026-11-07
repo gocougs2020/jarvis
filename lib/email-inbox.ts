@@ -9,12 +9,8 @@ import {
   receivedAuthenticationResults,
 } from "@/lib/email-content";
 import { EMAIL_EMBEDDING_KINDS, EMAIL_SEARCH_MIN_SCORE, persistEmailEmbeddings } from "@/lib/email-embeddings";
-import {
-  findUserById,
-  inboundMailOwner,
-  normalizeEmailAddress,
-  parseAddressList,
-} from "@/lib/email-users";
+import { findUserById, normalizeEmailAddress, parseAddressList } from "@/lib/email-users";
+import { inboundMailOwner } from "@/lib/owner";
 import { appOrigin, internalDispatchSecret } from "@/lib/internal-auth";
 import { isAgentRecipient } from "@/lib/resend";
 import { embedTexts } from "@/lib/embeddings";
@@ -99,7 +95,6 @@ export async function searchUserInbox(
         userId,
         queryEmbeddings: [embedding],
         kinds: EMAIL_EMBEDDING_KINDS,
-        includeSourceIds: emails.map((email) => email.id),
         limit: Math.max(limit * 2, 24),
         minScore: EMAIL_SEARCH_MIN_SCORE,
       });
@@ -305,8 +300,8 @@ async function startActionSessionIfRequested(email: EmailRecord, threadNote?: st
 
 /**
  * `email.received` for the agent address (`RESEND_FROM_EMAIL`). The mail is
- * stored for the account that sent it, or for the workspace owner, and is
- * searchable from the Inbox page and the agent's email tools.
+ * stored for the owner and is searchable from the Inbox page and the agent's
+ * email tools.
  */
 export async function processInboundResendEmail(eventData: InboundEmailPayload): Promise<EmailRecord | null> {
   const resendEmailId = eventData.emailId?.trim();

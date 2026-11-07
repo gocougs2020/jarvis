@@ -18,6 +18,7 @@ import {
   rankEmbeddingHits,
   sameEmbeddingKey,
   titleFromPrompt,
+  withOwnedParents,
 } from "@/lib/store-logic";
 
 const daily = { kind: "daily" as const, timezone: "UTC", hour: 9, minute: 0 };
@@ -116,7 +117,7 @@ describe("job records", () => {
         everyMinutes: null,
         authenticator: "better-auth",
         issuer: null,
-        visibility: "shared",
+        visibility: "public",
       },
       "2026-09-06T10:00:00.000Z",
       "job-1",
@@ -221,27 +222,10 @@ describe("embedding search", () => {
     expect(sameEmbeddingKey(left, { ...left, kind: "session_prompt" })).toBe(false);
   });
 
-  it("scopes user search to the owner plus includeSourceIds", () => {
-    const input = {
-      userId: "user-1",
-      queryEmbeddings: [[1, 0]],
-      limit: 5,
-      includeSourceIds: ["shared-1"],
-    };
+  it("only matches the user's own embeddings", () => {
+    const input = { userId: "user-1", queryEmbeddings: [[1, 0]], limit: 5 };
     expect(embeddingMatchesSearch(record("own"), input)).toBe(true);
     expect(embeddingMatchesSearch(record("other", { userId: "user-2" }), input)).toBe(false);
-    expect(
-      embeddingMatchesSearch(record("shared-1", { userId: "user-2", sourceId: "shared-1" }), input),
-    ).toBe(true);
-    expect(
-      embeddingMatchesSearch(record("own", { kind: "document_title" }), {
-        ...input,
-        kinds: ["session_title"],
-      }),
-    ).toBe(false);
-    expect(
-      embeddingMatchesSearch(record("own"), { ...input, excludeSourceIds: ["own"] }),
-    ).toBe(false);
   });
 
   it("keeps the highest score per id and applies the floor", () => {
@@ -255,5 +239,20 @@ describe("embedding search", () => {
       { minScore: 0.5, limit: 8 },
     );
     expect(ranked.map((hit) => [hit.record.id, hit.score])).toEqual([["a", 0.9]]);
+  });
+});
+
+describe("withOwnedParents", () => {
+  it("moves a folder whose parent is not the owner's to the root and keeps the rest", () => {
+    const folders = [
+      { id: "a", parentId: null },
+      { id: "b", parentId: "a" },
+      { id: "c", parentId: "someone-elses-shared-folder" },
+    ];
+    expect(withOwnedParents(folders)).toEqual([
+      { id: "a", parentId: null },
+      { id: "b", parentId: "a" },
+      { id: "c", parentId: null },
+    ]);
   });
 });

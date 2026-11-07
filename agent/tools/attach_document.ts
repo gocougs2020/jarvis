@@ -23,6 +23,6 @@ export default defineTool({
     if (!attached) {
       throw new Error("Unable to attach that file to this session.");
     }
-    return { attached: true, document: toClientDocument(document, [], user.userId), chatId };
+    return { attached: true, document: toClientDocument(document, []), chatId };
   },
 });

@@ -8,6 +8,13 @@ The matching git tag is the baseline to sync against. Bump `package.json` when y
 
 ## Unreleased
 
+Single-user Jarvis
+- Jarvis now has exactly one account, the owner, named by the new `OWNER_EMAIL`. Only that address can create the account, sign in, or keep a session. Without it, nobody can sign up and the setup checklist stays on `/` (any host); only under `npm run dev` does the first sign-up become the owner. Once the account exists, `/sign-up` redirects to sign-in.
+- **Set `OWNER_EMAIL`** to your own address before you deploy this version, then remove `ALLOWED_SIGNUP_EMAILS`, `ALLOWED_SIGNUP_DOMAINS`, `BLOCKED_ACCESS_EMAILS`, and `ALLOWED_ACCOUNT_USAGE_EMAILS`; they are no longer read. Any other account already in the database is locked out; its data stays untouched.
+- Removed sharing between accounts. Files are private or public (`/d/...` link). Folders no longer have a visibility setting. Files and folders marked "shared" read as private; no migration is needed.
+- Removed the Account tab and per-person breakdown on Usage.
+- Inbound mail is filed for the owner (named by `OWNER_EMAIL`), not the oldest account. Sessions still start only from the owner's own address with a DMARC pass.
+
 Per-deployment config and theming
 - Any `app.config.ts` key can now be overridden per deployment with `NEXT_PUBLIC_APP_CONFIG` (JSON, deep-merged), plus `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_APP_TAGLINE`, and `NEXT_PUBLIC_BRAND_COLOR` shortcuts. Unknown keys, wrong types, and unsafe CSS fail the build. A fork can keep `app.config.ts` identical to upstream.
 - New `theme` block in `app.config.ts`: `brandColor`, `brandForeground`, `radius`, per-mode `light` / `dark` token overrides, `browserColor` (was hardcoded in `lib/pwa.ts`), and `icon` colors (were hardcoded in `lib/app-icon.tsx`). The defaults render exactly as before. **Add the block when you merge** if you keep your own config.
@@ -15,7 +22,7 @@ Per-deployment config and theming
 
 Email: one agent address
 - The agent has one address, `RESEND_FROM_EMAIL` (for example `agent@yourdomain.com`). It sends from it and receives at it. Per-user plus-addresses (`agent+token@…`), address rotation, and `RESEND_INBOUND_ADDRESSES` / `RESEND_INBOUND_DOMAINS` are gone. **Remove those two variables**, and point anything that mailed an old plus-address at the agent address.
-- Inbound mail is filed for the account whose email sent it, or for the workspace owner (the first account).
+- Inbound mail is filed for the account whose email sent it, or for the workspace owner (the first account). (Superseded: see Single-user Jarvis.)
 - Because the address is no longer secret, mail starts an unattended session only when From is an account email **and** the receiving server reports a DMARC pass for that domain. New `security.emailSessionsRequireDmarc` in `app.config.ts` (default `true`). **Add it when you merge** if you keep your own config.
 - The `user_settings.inbound_mail_token` column is no longer used. Existing databases keep it; it is harmless.
 

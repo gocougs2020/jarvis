@@ -32,7 +32,6 @@ export const getUserSettings = delegate("getUserSettings");
 export const upsertUserSettings = delegate("upsertUserSettings");
 
 export const listChats = delegate("listChats");
-export const listAccountChats = delegate("listAccountChats");
 export const getChat = delegate("getChat");
 export const createChat = delegate("createChat");
 export const updateChat = delegate("updateChat");
@@ -83,7 +82,6 @@ export const listSessionCitationSets = delegate("listSessionCitationSets");
 
 export const upsertUsageRecord = delegate("upsertUsageRecord");
 export const listUserUsage = delegate("listUserUsage");
-export const listAccountUsage = delegate("listAccountUsage");
 export const listChatUsage = delegate("listChatUsage");
 
 export const listEmails = delegate("listEmails");

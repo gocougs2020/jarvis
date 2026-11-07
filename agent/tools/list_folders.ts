@@ -5,7 +5,7 @@ import { listUserFolders, toClientFolder } from "../../lib/document-folders";
 
 export default defineTool({
   description:
-    "List folders this user can see: their own folders, plus folders others shared with the app.",
+    "List the user's folders.",
   inputSchema: z.object({
     parentId: z
       .string()
@@ -20,6 +20,6 @@ export default defineTool({
       input.parentId === undefined
         ? folders
         : folders.filter((folder) => folder.parentId === input.parentId);
-    return filtered.map((folder) => toClientFolder(folder, folders, 0, user.userId));
+    return filtered.map((folder) => toClientFolder(folder, folders, 0));
   },
 });

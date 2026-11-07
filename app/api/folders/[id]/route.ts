@@ -8,7 +8,6 @@ import {
   toClientFolder,
   updateUserFolder,
 } from "@/lib/document-folders";
-import { isResourceVisibility } from "@/lib/visibility";
 
 export async function GET(
   request: Request,
@@ -24,7 +23,7 @@ export async function GET(
   if (!folder) {
     return NextResponse.json({ error: "Folder not found." }, { status: 404 });
   }
-  return NextResponse.json({ folder: toClientFolder(folder, folders, 0, session.user.id) });
+  return NextResponse.json({ folder: toClientFolder(folder, folders, 0) });
 }
 
 export async function PATCH(
@@ -38,7 +37,6 @@ export async function PATCH(
     name?: string;
     description?: string;
     parentId?: string | null;
-    visibility?: string;
   };
 
   try {
@@ -46,10 +44,9 @@ export async function PATCH(
       name: body.name,
       description: body.description,
       parentId: body.parentId,
-      visibility: isResourceVisibility(body.visibility) ? body.visibility : undefined,
     });
     const folders = await listUserFolders(session.user.id);
-    return NextResponse.json({ folder: toClientFolder(folder, folders, 0, session.user.id) });
+    return NextResponse.json({ folder: toClientFolder(folder, folders, 0) });
   } catch (folderError) {
     if (folderError instanceof DocumentFolderError) {
       return NextResponse.json({ error: folderError.message }, { status: folderError.status });

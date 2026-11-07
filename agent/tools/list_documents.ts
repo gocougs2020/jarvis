@@ -6,7 +6,7 @@ import { searchUserLibrary, toClientDocument } from "../../lib/documents";
 
 export default defineTool({
   description:
-    "List or search files this user can see: their own files, plus files others shared with the app. Use query to find files by name, filename, contents, or a description of what the file is about.",
+    "List or search the user's files. Use query to find files by name, filename, contents, or a description of what the file is about.",
   inputSchema: z.object({
     sessionOnly: z.boolean().optional(),
     folderId: z
@@ -50,6 +50,6 @@ export default defineTool({
             document.filename.toLowerCase().includes(needle),
         )
       : inFolder;
-    return filtered.slice(0, 40).map((document) => toClientDocument(document, folders, user.userId));
+    return filtered.slice(0, 40).map((document) => toClientDocument(document, folders));
   },
 });

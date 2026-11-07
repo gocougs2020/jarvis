@@ -26,9 +26,9 @@ describe("upsertEnvFile", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "jarvis-setup-"));
     const file = path.join(dir, ".env.local");
     writeFileSync(file, "AI_GATEWAY_API_KEY=keep", "utf8");
-    upsertEnvFile(file, "ALLOWED_SIGNUP_EMAILS", "you@example.com");
+    upsertEnvFile(file, "OWNER_EMAIL", "you@example.com");
     expect(readFileSync(file, "utf8")).toBe(
-      "AI_GATEWAY_API_KEY=keep\nALLOWED_SIGNUP_EMAILS=you@example.com\n",
+      "AI_GATEWAY_API_KEY=keep\nOWNER_EMAIL=you@example.com\n",
     );
   });
 });

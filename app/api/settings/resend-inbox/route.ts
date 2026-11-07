@@ -3,7 +3,7 @@ import { requireApiSession } from "@/lib/api";
 import { inboundMailPayload } from "@/lib/inbound-mail-payload";
 import {
   ensureAgentResendInbox,
-  isWorkspaceOwner,
+  isOwnerUser,
   ResendInboxError,
   resendInboxAvailable,
 } from "@/lib/resend-inbox";
@@ -15,9 +15,9 @@ export async function POST(request: Request) {
   if (!resendInboxAvailable()) {
     return NextResponse.json({ error: "Resend Inboxes are not available here." }, { status: 404 });
   }
-  if (!(await isWorkspaceOwner(session.user.id))) {
+  if (!(await isOwnerUser(session.user.id))) {
     return NextResponse.json(
-      { error: "Only the workspace owner can set up the agent inbox." },
+      { error: "Only the owner can set up the agent inbox." },
       { status: 403 },
     );
   }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthForm } from "@/components/auth-form";
 import { needsVerificationFollowUp } from "@/lib/auth-email";
 import { authFormErrorMessage, firstSearchParam } from "@/lib/auth-form";
+import { ownerAccount } from "@/lib/owner";
 import { getSession } from "@/lib/session";
 import { getSetupStatus } from "@/lib/setup-status";
 
@@ -25,6 +26,7 @@ export default async function SignInPage({
       checkEmail={firstSearchParam(query.checkEmail) === "1" || needsVerificationFollowUp(error)}
       initialError={error ? authFormErrorMessage(error) : undefined}
       mode="sign-in"
+      signUpOpen={!(await ownerAccount())}
     />
   );
 }

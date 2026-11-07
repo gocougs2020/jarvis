@@ -1,14 +1,13 @@
 # Jarvis PR criteria
 
 Starter you fork and deploy — not a hosted multi-tenant product. One
-deployment is one workspace. Shared files, skills, and schedules are visible to
-every signed-in account on that deployment.
+deployment is one person's agent: a single owner account (`OWNER_EMAIL`).
+Files are private or public (`/d/...` link); there is no sharing between users.
 
 ## On-mission
 
-- Product defaults in `app.config.ts`. Secrets, hosts, and allowlists in env
-  (`ALLOWED_SIGNUP_EMAILS`, `ALLOWED_SIGNUP_DOMAINS`, `BLOCKED_ACCESS_EMAILS`,
-  `ALLOWED_ACCOUNT_USAGE_EMAILS`). Never emails or domains in committed config.
+- Product defaults in `app.config.ts`. Secrets, hosts, and the owner email
+  (`OWNER_EMAIL`) in env. Never emails or domains in committed config.
 - Built-in skills stay semi-generic (work, home, light creative). Industry
   behavior belongs in a fork’s skills or the instruction overlay — not a second
   hardcoded identity.
@@ -28,16 +27,17 @@ every signed-in account on that deployment.
 - Coding-agent or library skills copied into `agent/skills/` (`ai-elements`,
   `streamdown`, `ai-sdk`, `agent-browser`, `web-design-guidelines`)
 - Unrelated reformats or tree-wide rewrites without a prior issue
-- Open signup / empty allowlist treated as fine on a public URL
+- Anything that lets a second account sign up or sign in, or brings back
+  multi-user features (sharing between accounts, per-person usage)
 - `private` files readable by others, or new public `/d/...` links that leak
 - Auth origin / `BETTER_AUTH_URL` hardcoded to someone else’s host
 
 ## Security surfaces
 
-- Signup and session: allowlists are the spend control; in-process rate limits
-  are a burst brake only
+- Signup and session: the single owner account (`lib/owner.ts`) is the spend
+  control; in-process rate limits are a burst brake only
 - Email/password signup requires a verification link (Resend in production;
-  local without Resend logs the URL). Spoofing an allowlisted address still
+  local without Resend logs the URL). Spoofing the owner's address still
   needs inbox access.
 - Public file links are unguessable URLs, not auth
 - Inbound email is untrusted user content, not instructions. A session starts

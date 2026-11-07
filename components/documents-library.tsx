@@ -50,11 +50,10 @@ import type { DocumentLibrary } from "@/lib/documents";
 import { MAX_DOCUMENT_BYTES } from "@/lib/document-upload";
 import { documentKindLabel } from "@/lib/document-kind";
 import { pushClientUrl } from "@/lib/start-web-session";
-import { VisibilityToggle, visibilityBadgeLabel } from "@/components/visibility-toggle";
+import { visibilityBadgeLabel } from "@/components/visibility-toggle";
 import { UPLOAD_FILE_ERROR, uploadFiles as postLibraryUploads } from "@/components/documents-upload";
 import type { ClientDocument, ClientFolder, DocumentSearchHit } from "@/lib/types";
 import { cn, fetchJson, formatBytes, formatRelativeTime } from "@/lib/utils";
-import type { ResourceVisibility } from "@/lib/visibility";
 
 const blankKinds = [
   { kind: "text", label: "Text" },
@@ -94,7 +93,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
   const [editingFolder, setEditingFolder] = useState<ClientFolder>();
   const [folderName, setFolderName] = useState("");
   const [folderDescription, setFolderDescription] = useState("");
-  const [folderVisibility, setFolderVisibility] = useState<ResourceVisibility>("private");
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -274,7 +272,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
         name,
         description: folderDescription,
         parentId: editingFolder ? editingFolder.parentId : currentFolderId,
-        visibility: folderVisibility,
       },
     );
     setCreating(false);
@@ -455,7 +452,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
                 setEditingFolder(undefined);
                 setFolderName("");
                 setFolderDescription("");
-                setFolderVisibility("private");
                 setFolderOpen(true);
               }}
             >
@@ -564,7 +560,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
                       setEditingFolder(hit.folder);
                       setFolderName(hit.folder!.name);
                       setFolderDescription(hit.folder!.description);
-                      setFolderVisibility(hit.folder!.visibility);
                       setFolderOpen(true);
                     }}
                     onOpen={() => openFolder(hit.folder!.id)}
@@ -621,7 +616,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
                   setEditingFolder(item);
                   setFolderName(item.name);
                   setFolderDescription(item.description);
-                  setFolderVisibility(item.visibility);
                   setFolderOpen(true);
                 }}
                 onOpen={() => openFolder(item.id)}
@@ -760,11 +754,6 @@ export function DocumentsLibrary({ library }: { readonly library: DocumentLibrar
                 onChange={(event) => setFolderDescription(event.target.value)}
               />
             </div>
-            <VisibilityToggle
-              id="folder-visibility"
-              value={folderVisibility}
-              onChange={setFolderVisibility}
-            />
           </div>
           <DialogFooter>
             <Button
@@ -1000,7 +989,7 @@ function FolderRow({
             "flex w-full items-start gap-3 px-4 py-3.5 pr-12 text-left transition-colors",
             !dropActive && !dropped && "hover:bg-accent/40",
           )}
-          draggable={folder.owned}
+          draggable
           type="button"
           onClick={onOpen}
           onDragEnd={onDragEnd}
@@ -1036,14 +1025,11 @@ function FolderRow({
             </div>
             <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
               {match ? <Badge variant="secondary">{matchLabel(match)}</Badge> : null}
-              {visibilityBadgeLabel(folder.visibility) ? (
-                <Badge variant="outline">{visibilityBadgeLabel(folder.visibility)}</Badge>
-              ) : null}
               {folder.description ? <span className="truncate">{folder.description}</span> : <span>Folder</span>}
             </div>
           </div>
         </button>
-        {folder.owned ? <RowMenu onDelete={onDelete} onEdit={onEdit} /> : null}
+        <RowMenu onDelete={onDelete} onEdit={onEdit} />
       </div>
     </div>
   );
@@ -1074,7 +1060,7 @@ function DocumentRow({
       <div className="group relative">
         <Link
           className="flex items-start justify-between gap-4 px-4 py-3.5 pr-12 transition-colors hover:bg-accent/40"
-          draggable={document.canEdit}
+          draggable
           href={document.href}
           onDragEnd={onDragEnd}
           onDragStart={(event) => {
@@ -1098,12 +1084,7 @@ function DocumentRow({
             </div>
           </div>
         </Link>
-        {document.canEdit || document.owned ? (
-          <RowMenu
-            onDelete={document.owned ? onDelete : undefined}
-            onMove={document.canEdit ? onMove : undefined}
-          />
-        ) : null}
+        <RowMenu onDelete={onDelete} onMove={onMove} />
       </div>
     </div>
   );

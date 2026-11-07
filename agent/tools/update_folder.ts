@@ -15,10 +15,6 @@ export default defineTool({
       .nullable()
       .optional()
       .describe("Destination folder id, or null to move the folder to the library root."),
-    visibility: z
-      .enum(["private", "shared"])
-      .optional()
-      .describe("private keeps the folder to the owner. shared lets everyone on this app see it."),
   }),
   async execute(input, ctx) {
     const user = requireUser(ctx);
@@ -26,9 +22,8 @@ export default defineTool({
       name: input.name,
       description: input.description,
       parentId: input.parentId,
-      visibility: input.visibility,
     });
     const folders = await listUserFolders(user.userId);
-    return toClientFolder(folder, folders, 0, user.userId);
+    return toClientFolder(folder, folders, 0);
   },
 });

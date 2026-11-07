@@ -72,21 +72,6 @@ export type UsageChatRef = {
   readonly userId?: string;
 };
 
-export type UsageUserRef = {
-  readonly id: string;
-  readonly name: string;
-  readonly email: string;
-};
-
-export type UsageUserRow = {
-  readonly userId: string;
-  readonly name: string;
-  readonly email: string;
-  readonly sessions: number;
-  readonly turns: number;
-  readonly totals: UsageTotals;
-};
-
 export function emptyUsageTotals(): UsageTotals {
   return { ...emptyUsageTokens(), costUsd: 0, calls: 0 };
 }
@@ -329,14 +314,12 @@ export function summarizeUsageRecords(
   records: readonly UsageRecord[],
   options?: {
     readonly chats?: readonly UsageChatRef[];
-    readonly users?: readonly UsageUserRef[];
   },
 ): {
   readonly byModel: UsageBreakdownRow[];
   readonly byPurpose: UsageBreakdownRow[];
   readonly byChat: UsageBreakdownRow[];
   readonly byDay: DailyUsageRow[];
-  readonly byUser: UsageUserRow[];
   readonly modelCalls: number;
   readonly sessions: number;
   readonly turns: number;
@@ -348,9 +331,6 @@ export function summarizeUsageRecords(
   const purposes = new Map<UsagePurpose, UsageTotals>();
   const chats = new Map<string, UsageTotals>();
   const chatTurns = new Map<string, Set<string>>();
-  const users = new Map<string, UsageTotals>();
-  const userTurns = new Map<string, Set<string>>();
-  const userSessions = new Map<string, Set<string>>();
   const dayTotals = new Map<string, UsageTotals>();
   const dayModelCalls = new Map<string, number>();
   const sessionStartDay = new Map<string, string>();
@@ -359,11 +339,6 @@ export function summarizeUsageRecords(
   for (const chat of options?.chats ?? []) {
     const day = usageDayKey(chat.createdAt);
     if (day) sessionStartDay.set(chat.id, day);
-    if (chat.userId) {
-      const sessions = userSessions.get(chat.userId) ?? new Set<string>();
-      sessions.add(chat.id);
-      userSessions.set(chat.userId, sessions);
-    }
   }
 
   const chronological = [...records].sort((left, right) =>
@@ -386,12 +361,8 @@ export function summarizeUsageRecords(
         dayModelCalls.set(day, (dayModelCalls.get(day) ?? 0) + 1);
       }
     }
-    users.set(record.userId, addUsageTotals(users.get(record.userId) ?? emptyUsageTotals(), row));
     if (record.chatId) {
       chats.set(record.chatId, addUsageTotals(chats.get(record.chatId) ?? emptyUsageTotals(), row));
-      const owned = userSessions.get(record.userId) ?? new Set<string>();
-      owned.add(record.chatId);
-      userSessions.set(record.userId, owned);
       if (day && !sessionStartDay.has(record.chatId)) {
         sessionStartDay.set(record.chatId, day);
       }
@@ -400,9 +371,6 @@ export function summarizeUsageRecords(
         const turns = chatTurns.get(record.chatId) ?? new Set<string>();
         turns.add(turnId);
         chatTurns.set(record.chatId, turns);
-        const perUserTurns = userTurns.get(record.userId) ?? new Set<string>();
-        perUserTurns.add(`${record.chatId}:${turnId}`);
-        userTurns.set(record.userId, perUserTurns);
         const turnKey = `${record.chatId}:${turnId}`;
         if (day && !turnStartDay.has(turnKey)) {
           turnStartDay.set(turnKey, day);
@@ -458,23 +426,6 @@ export function summarizeUsageRecords(
         turns: chatTurns.get(key)?.size ?? 0,
       }))
       .sort((left, right) => right.totals.costUsd - left.totals.costUsd),
-    byUser: (() => {
-      const profiles = new Map((options?.users ?? []).map((user) => [user.id, user]));
-      const ids = new Set<string>([...users.keys(), ...profiles.keys(), ...userSessions.keys()]);
-      return [...ids]
-        .map((userId) => {
-          const profile = profiles.get(userId);
-          return {
-            userId,
-            name: profile?.name.trim() || profile?.email || "Unknown user",
-            email: profile?.email ?? "",
-            sessions: userSessions.get(userId)?.size ?? 0,
-            turns: userTurns.get(userId)?.size ?? 0,
-            totals: users.get(userId) ?? emptyUsageTotals(),
-          };
-        })
-        .sort((left, right) => right.totals.costUsd - left.totals.costUsd);
-    })(),
   };
 }
 
@@ -519,7 +470,6 @@ export type UsagePageSnapshot = {
   readonly byDay: readonly DailyUsageRow[];
   readonly byModel: UsageBreakdownRow[];
   readonly byPurpose: UsageBreakdownRow[];
-  readonly byUser: UsageUserRow[];
   readonly sessionsList: readonly UsageSessionRow[];
 };
 
@@ -533,14 +483,10 @@ export function toUsagePageSnapshot(
     readonly updatedAt: string;
   }[],
   options?: {
-    readonly users?: readonly UsageUserRef[];
     readonly includeSessions?: boolean;
   },
 ): UsagePageSnapshot {
-  const summary = summarizeUsageRecords(records, {
-    chats,
-    users: options?.users,
-  });
+  const summary = summarizeUsageRecords(records, { chats });
   const chatsById = new Map(chats.map((chat) => [chat.id, chat]));
   return {
     totals: summary.totals,
@@ -553,7 +499,6 @@ export function toUsagePageSnapshot(
       label: displayModelId(row.key),
     })),
     byPurpose: summary.byPurpose,
-    byUser: summary.byUser,
     sessionsList:
       options?.includeSessions === false
         ? []

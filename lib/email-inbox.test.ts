@@ -41,8 +41,10 @@ vi.mock("@/lib/email-classify", () => ({
 
 vi.mock("@/lib/email-users", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email-users")>();
-  return { ...actual, findUserById: mocks.findUserById, inboundMailOwner: mocks.inboundMailOwner };
+  return { ...actual, findUserById: mocks.findUserById };
 });
+
+vi.mock("@/lib/owner", () => ({ inboundMailOwner: mocks.inboundMailOwner }));
 
 vi.mock("@/lib/resend-inbox", () => ({
   agentResendInboxActive: mocks.agentResendInboxActive,

@@ -78,7 +78,7 @@ export async function POST(request: Request) {
       });
       const folders = await listFolders(session.user.id);
       return NextResponse.json({
-        document: toClientDocument(document, folders, session.user.id),
+        document: toClientDocument(document, folders),
       });
     }
 
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       title: body.title ?? "Untitled",
     });
     const folders = await listFolders(session.user.id);
-    return NextResponse.json({ document: toClientDocument(document, folders, session.user.id) });
+    return NextResponse.json({ document: toClientDocument(document, folders) });
   } catch (documentError) {
     if (documentError instanceof DocumentError || documentError instanceof DocumentUploadError) {
       return NextResponse.json({ error: documentError.message }, { status: documentError.status });

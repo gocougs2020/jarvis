@@ -137,16 +137,13 @@ export type ClientDocument = Omit<DocumentRecord, "blobPathname" | "blobUrl"> & 
   fileHref: string;
   shareUrl: string | null;
   editable: boolean;
-  canEdit: boolean;
   folderPath: string;
-  owned: boolean;
 };
 
-export type ClientFolder = Omit<DocumentFolder, "userId"> & {
+export type ClientFolder = Omit<DocumentFolder, "userId" | "visibility"> & {
   href: string;
   path: string;
   fileCount: number;
-  owned: boolean;
 };
 
 export type DocumentSearchMatch = "name" | "content" | "similar";
@@ -230,19 +227,8 @@ export type EmbeddingSearchInput = {
   queryEmbeddings: readonly number[][];
   kinds?: readonly EmbeddingKind[];
   excludeSourceIds?: readonly string[];
-  /**
-   * Also include embeddings whose `sourceId` is in this list, even when they
-   * belong to another user (shared/public library rows). Ignored when `scope`
-   * is `"account"`.
-   */
-  includeSourceIds?: readonly string[];
   limit: number;
   minScore?: number;
-  /**
-   * `account` searches every user's embeddings; the caller must drop private
-   * hits. Library and inbox search should use user scope plus `includeSourceIds`.
-   */
-  scope?: "user" | "account";
 };
 
 export type EmbeddingSearchHit = {

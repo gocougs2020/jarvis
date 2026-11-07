@@ -397,9 +397,7 @@ export function embeddingMatchesSearch(
 ): boolean {
   if (input.kinds && !input.kinds.includes(row.kind as EmbeddingKind)) return false;
   if (input.excludeSourceIds?.includes(row.sourceId)) return false;
-  if (input.scope === "account") return true;
-  if (row.userId === input.userId) return true;
-  return Boolean(input.includeSourceIds?.includes(row.sourceId));
+  return row.userId === input.userId;
 }
 
 export function rankEmbeddingHits(
@@ -493,4 +491,19 @@ export function newEmailRecord(input: CreateEmailInput, stamp = nowIso()): Email
 
 export function applyEmailPatch(email: EmailRecord, patch: EmailPatch, stamp = nowIso()): EmailRecord {
   return normalizeEmail({ ...email, ...patch, updatedAt: stamp });
+}
+
+/**
+ * Folders whose parent is not one of these (for example a folder created
+ * inside another account's formerly shared folder) are shown at the library
+ * root, the same way documents in an unknown folder are. Without this they
+ * would be unreachable and could not be renamed.
+ */
+export function withOwnedParents<T extends { readonly id: string; readonly parentId: string | null }>(
+  folders: readonly T[],
+): T[] {
+  const ids = new Set(folders.map((folder) => folder.id));
+  return folders.map((folder) =>
+    folder.parentId && !ids.has(folder.parentId) ? { ...folder, parentId: null } : folder,
+  );
 }

@@ -13,10 +13,6 @@ export default defineTool({
       .optional()
       .describe("Optional note about the kinds of files that belong here."),
     parentId: z.string().optional().describe("Existing folder id to nest under. Omit for the root."),
-    visibility: z
-      .enum(["private", "shared"])
-      .optional()
-      .describe("private (default) is only this user. shared lets everyone on this app see the folder."),
   }),
   async execute(input, ctx) {
     const user = requireUser(ctx);
@@ -24,9 +20,8 @@ export default defineTool({
       name: input.name,
       description: input.description,
       parentId: input.parentId,
-      visibility: input.visibility,
     });
     const folders = await listUserFolders(user.userId);
-    return toClientFolder(folder, folders, 0, user.userId);
+    return toClientFolder(folder, folders, 0);
   },
 });

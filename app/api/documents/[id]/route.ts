@@ -58,7 +58,7 @@ export async function PATCH(
       title: body.title,
     });
     const folders = await listFolders(session.user.id);
-    return NextResponse.json({ document: toClientDocument(document, folders, session.user.id) });
+    return NextResponse.json({ document: toClientDocument(document, folders) });
   } catch (documentError) {
     if (documentError instanceof DocumentError) {
       return NextResponse.json({ error: documentError.message }, { status: documentError.status });

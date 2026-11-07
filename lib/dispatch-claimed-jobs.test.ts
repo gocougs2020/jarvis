@@ -12,8 +12,11 @@ const store = vi.hoisted(() => ({
   titleFromPrompt: (value: string) => value,
 }));
 
+const owner = vi.hoisted(() => ({ ownerAccount: vi.fn() }));
+
 vi.mock("@/lib/store", () => store);
 vi.mock("@/lib/db", () => ({ hasNeon: () => false }));
+vi.mock("@/lib/owner", () => owner);
 
 const { dispatchClaimedJobs } = await import("@/lib/dispatch-jobs");
 
@@ -42,6 +45,30 @@ beforeEach(() => {
   vi.clearAllMocks();
   store.createChat.mockResolvedValue({ id: "chat_1" } as ChatRecord);
   store.completeJob.mockResolvedValue(true);
+  owner.ownerAccount.mockResolvedValue({ id: "user_1", email: "ada@example.com", name: "Ada" });
+});
+
+describe("dispatchClaimedJobs for one owner", () => {
+  it("pauses a schedule left behind by another account instead of running it", async () => {
+    const startSession = vi.fn();
+    const result = await dispatchClaimedJobs([{ ...job, userId: "user_old" }], startSession);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ dispatched: 0, failed: 1 });
+    expect(store.releaseJob).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_old" }),
+      expect.stringMatching(/can no longer sign in/),
+      null,
+      true,
+    );
+  });
+
+  it("holds every schedule, without pausing it, until the owner account exists", async () => {
+    owner.ownerAccount.mockResolvedValue(null);
+    const startSession = vi.fn();
+    await dispatchClaimedJobs([job], startSession);
+    expect(startSession).not.toHaveBeenCalled();
+    expect(store.releaseJob).toHaveBeenCalledWith(job, expect.stringMatching(/OWNER_EMAIL/), expect.any(Date), false);
+  });
 });
 
 describe("dispatchClaimedJobs", () => {
