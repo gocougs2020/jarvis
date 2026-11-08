@@ -57,20 +57,6 @@ export function isInactiveSessionError(message: string): boolean {
   return /no longer active|no_active_session|unknown or terminal/i.test(message);
 }
 
-/** Visible assistant text from the most recent turn, for reading the reply aloud. */
-export function latestTurnReplyText(events: readonly MessageStreamEvent[]): string {
-  let turnId: string | undefined;
-  const parts: string[] = [];
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.type !== "message.completed") continue;
-    if (turnId === undefined) turnId = event.data.turnId;
-    if (event.data.turnId !== turnId) break;
-    if (event.data.message?.trim()) parts.unshift(event.data.message.trim());
-  }
-  return parts.join("\n\n");
-}
-
 /**
  * The root session for `sessionId` when it is a delegated child named by a
  * `subagent.called` event in this chat's log, else `sessionId` unchanged.

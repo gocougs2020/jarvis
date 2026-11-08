@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { getVoiceAudioContext } from "@/lib/voice-mode";
+import { getVoiceAudioContext } from "@/lib/voice-audio";
 
 const barCount = 28;
 const restLevel = 0.12;

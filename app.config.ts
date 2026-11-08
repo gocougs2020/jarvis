@@ -149,8 +149,11 @@ export type AppConfig = {
     imageGeneration: string;
     /** AI Gateway transcription model for voice input (same credentials as chat). */
     transcription: string;
-    /** AI Gateway speech (text-to-speech) model for spoken replies in voice mode. */
-    speech: string;
+    /**
+     * AI Gateway realtime speech-to-speech model for voice mode. Runs in the
+     * browser over a WebSocket, separate from the eve agent (no tools).
+     */
+    realtime: string;
     contextWindows: Readonly<Record<string, number>>;
     /** Reasoning effort per feature. Chat routes are locked per session with their model. */
     reasoning: {
@@ -219,10 +222,8 @@ export type AppConfig = {
     selfEmailRequiresApproval: boolean;
   };
   voice: {
-    /** Voice for `models.speech`. Grok TTS voices: ara, eve, leo, rex, sal. */
-    speechVoice: string;
-    /** Longer replies are trimmed to this many characters before they are spoken. */
-    maxSpeechChars: number;
+    /** Voice for `models.realtime`. Grok voices: ara, eve, leo, rex, sal. */
+    realtimeVoice: string;
   };
   setup: {
     /**
@@ -287,7 +288,7 @@ const defaults = {
     embeddings: "openai/text-embedding-3-small",
     imageGeneration: "openai/gpt-image-2",
     transcription: "spacexai/grok-stt",
-    speech: "spacexai/grok-tts",
+    realtime: "spacexai/grok-voice-3.0",
     contextWindows: {
       "openai/gpt-6-luna": 1_050_000,
       "openai/gpt-6.1-sol": 1_050_000,
@@ -414,8 +415,7 @@ const defaults = {
   },
 
   voice: {
-    speechVoice: "ara",
-    maxSpeechChars: 2_000,
+    realtimeVoice: "ara",
   },
 
   setup: {

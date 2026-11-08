@@ -323,7 +323,7 @@ Chat IDs are AI Gateway strings (`provider/model`). On the first prompt of a ses
 | `embeddings` | Session, file, and inbox email embeddings | `openai/text-embedding-3-small` |
 | `imageGeneration` | `generate_image` | `openai/gpt-image-2` |
 | `transcription` | Voice input (AI Gateway, same credentials as chat) | `spacexai/grok-stt` |
-| `speech` | Spoken replies in voice mode (AI Gateway text-to-speech) | `spacexai/grok-tts` |
+| `realtime` | Voice mode (AI Gateway realtime speech-to-speech) | `spacexai/grok-voice-3.0` |
 
 Any AI Gateway model ID works, including other providers (`anthropic/…`, `google/…`).
 
@@ -387,12 +387,15 @@ The inbox holds the owner's mail, and only the owner can sign in, so it shows in
 
 ```ts
 voice: {
-  speechVoice: "ara",
-  maxSpeechChars: 2_000,
+  realtimeVoice: "ara",
 },
 ```
 
-The waveform button next to the mic turns on hands-free voice mode for that browser. It starts listening right away and shows a live waveform; when you stop talking (about 1.3 seconds of quiet) the recording is transcribed by `models.transcription` and sent. The composer shows **Thinking…** while the agent works, then the reply is read aloud by `models.speech` in `speechVoice` (Grok TTS voices: `ara`, `eve`, `leo`, `rex`, `sal`) with a waveform, and then it listens again. Markdown, code blocks, links, and citation markers are dropped first, and replies longer than `maxSpeechChars` are cut at a sentence boundary. Tap the mic to interrupt a reply, the check to send early, or **End voice** to leave voice mode. If nobody speaks for about 12 seconds it stops listening until you tap the mic. Voice mode keeps the full agent (tools, files, memory) in the loop; it is not a separate realtime speech-to-speech model.
+The waveform button next to the mic opens voice mode: a live, two-way voice conversation with `models.realtime` (`spacexai/grok-voice-3.0`) in `realtimeVoice` (Grok voices: `ara`, `eve`, `leo`, `rex`, `sal`). Audio streams both ways over an AI Gateway WebSocket. Nothing is transcribed, typed into the chat, or read back, so replies start as soon as you stop talking, and you can talk over a reply to interrupt it. Tap the mic to mute, or **End voice** to close the session.
+
+Voice mode is separate from the agent. It knows your name, your saved memories, and your instructions from **Settings**, but it has no tools (no email, calendar, files, web search, or reminders), and the conversation is not saved to the chat. For anything that needs tools, type it in the chat; the plain mic button still dictates into the composer with `models.transcription`.
+
+The browser gets a 60-second Gateway client secret from `POST /api/realtime`, so the Gateway key never leaves the server. AI Gateway closes a realtime session after 25 minutes, or after 5 minutes of silence; tap the mic to start a new one. Realtime is experimental in AI SDK 7 (`experimental_useRealtime` from `@ai-sdk/react`), and its usage is billed by AI Gateway but not yet shown on the Usage page.
 
 ### In-app setup page
 
