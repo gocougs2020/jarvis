@@ -179,12 +179,41 @@ function RealtimeSession({
     };
   }, []);
 
+  const [sawConnecting, setSawConnecting] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   if (status === "connected" && !wasConnected) setWasConnected(true);
+  if (status === "connecting" && !sawConnecting) setSawConnecting(true);
+  // A failed handshake goes error -> disconnected without ever connecting.
+  const failed =
+    status === "error" ||
+    timedOut ||
+    (status === "disconnected" && sawConnecting && !wasConnected);
+  const ended = !failed && status === "disconnected" && wasConnected;
+  const finished = failed || ended;
+
+  // Give up if the session never becomes ready.
+  useEffect(() => {
+    if (wasConnected || failed) return;
+    const timer = window.setTimeout(() => {
+      setTimedOut(true);
+      disconnectRef.current();
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [failed, wasConnected]);
+
+  // The Gateway ends sessions after 25 minutes or 5 idle minutes, and a
+  // failed connect never starts capture: release the mic either way.
+  useEffect(() => {
+    if (!finished) return;
+    if (isCapturing) stopAudioCapture();
+    for (const track of stream?.getTracks() ?? []) track.stop();
+  }, [finished, isCapturing, stopAudioCapture, stream]);
 
   // Stream mic audio once the session is ready. Capture stops the stream's
   // tracks, so a mute keeps the session and unmuting needs a fresh stream.
   useEffect(() => {
-    if (status !== "connected" || !stream || muted || isCapturing) return;
+    if (status !== "connected" || finished || !stream || muted || isCapturing)
+      return;
     if (stream.getAudioTracks().some((track) => track.readyState === "live")) {
       startAudioCapture(stream);
       return;
@@ -205,23 +234,21 @@ function RealtimeSession({
     return () => {
       cancelled = true;
     };
-  }, [isCapturing, muted, startAudioCapture, status, stream]);
+  }, [finished, isCapturing, muted, startAudioCapture, status, stream]);
 
-  const phase: Phase =
-    status === "error"
-      ? "error"
-      : status === "disconnected" && wasConnected
-        ? "ended"
-        : status !== "connected"
-          ? "connecting"
-          : isPlaying
-            ? "speaking"
-            : muted
-              ? "muted"
-              : "listening";
+  const phase: Phase = failed
+    ? "error"
+    : ended
+      ? "ended"
+      : status !== "connected"
+        ? "connecting"
+        : isPlaying
+          ? "speaking"
+          : muted
+            ? "muted"
+            : "listening";
 
   const live = phase === "listening" && isCapturing;
-  const finished = phase === "ended" || phase === "error";
 
   return (
     <VoiceShell
