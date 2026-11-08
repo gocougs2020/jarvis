@@ -33,7 +33,6 @@ import { BrandHero } from "@/components/brand-hero";
 import { HomePrompt } from "@/components/home-prompt";
 import { appConfig } from "@/app.config";
 import { compactStreamEvents, firstChangedIndex } from "@/lib/chat-event-compaction";
-import { isVoiceModeOn, speakText } from "@/lib/voice-mode";
 import { SessionDocumentCanvas } from "@/components/session-document-canvas";
 import { SessionEmptyCanvas } from "@/components/session-empty-canvas";
 import { MobileSessionSheet } from "@/components/mobile-session-sheet";
@@ -54,7 +53,6 @@ import {
 } from "@/lib/start-web-session";
 import {
   hasSettledSessionTail,
-  latestTurnReplyText,
   hasTerminalSessionTail,
   isInactiveSessionError,
   sessionContextUsage,
@@ -581,11 +579,6 @@ function AgentChatSession({
       if (liveTurnRef.current) {
         liveTurnRef.current = false;
         markSessionActivityRef.current();
-        // Voice mode reads the reply aloud, but only for a turn just sent from
-        // this tab, never when replaying or resuming an older one.
-        if (isVoiceModeOn()) {
-          void speakText(latestTurnReplyText(snapshot.events), activeChatRef.current?.id);
-        }
       }
       void refreshSessionCitations();
       // Persist off the store's completion path so stringify/fetch cannot
@@ -865,7 +858,6 @@ function AgentChatSession({
       onHydrateEvents(eventsRef.current);
       persistEvents(eventsRef.current, true);
       updateQuickTurn(turnId, { reply: finalReply, streaming: false });
-      if (isVoiceModeOn() && !run.cancelled) void speakText(finalReply, chatId);
       return { answered: true };
     }
 

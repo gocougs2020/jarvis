@@ -8,6 +8,12 @@ The matching git tag is the baseline to sync against. Bump `package.json` when y
 
 ## Unreleased
 
+Realtime voice mode
+- Voice mode is now a live speech-to-speech conversation with `models.realtime` (`spacexai/grok-voice-3.0`) over an AI Gateway WebSocket, separate from the agent. Nothing is transcribed into the chat or read back afterwards, and you can interrupt a reply by talking. It has no tools; it gets your name, saved memories, and Settings instructions.
+- New route `/api/realtime` (instructions and a short-lived Gateway client secret). Removed `POST /api/speech` and the transcribe, send, then speak loop.
+- In `app.config.ts`, `models.speech` is replaced by `models.realtime`, and `voice.speechVoice` / `voice.maxSpeechChars` by `voice.realtimeVoice`. **Update both when you merge** if you keep your own config, and drop them from `NEXT_PUBLIC_APP_CONFIG` if you set them there.
+- New dependency `@ai-sdk/react` (for `experimental_useRealtime`).
+
 Single-user Jarvis
 - Jarvis now has exactly one account, the owner, named by the new `OWNER_EMAIL`. Only that address can create the account, sign in, or keep a session. Without it, nobody can sign up and the setup checklist stays on `/` (any host); only under `npm run dev` does the first sign-up become the owner. Once the account exists, `/sign-up` redirects to sign-in.
 - **Set `OWNER_EMAIL`** to your own address before you deploy this version, then remove `ALLOWED_SIGNUP_EMAILS`, `ALLOWED_SIGNUP_DOMAINS`, `BLOCKED_ACCESS_EMAILS`, and `ALLOWED_ACCOUNT_USAGE_EMAILS`; they are no longer read. Any other account already in the database is locked out; its data stays untouched.

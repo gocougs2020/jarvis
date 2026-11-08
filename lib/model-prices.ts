@@ -119,19 +119,6 @@ const TRANSCRIPTION_USD_PER_SECOND: Readonly<Record<string, number>> = {
 /** Fallback for a transcription model not listed above (openai/gpt-transcribe). */
 export const TRANSCRIPTION_USD_PER_MINUTE = 0.0045;
 
-/** AI Gateway list price per input character, by speech (text-to-speech) model. */
-const SPEECH_USD_PER_CHARACTER: Readonly<Record<string, number>> = {
-  "spacexai/grok-tts": 0.000015,
-  "openai/tts-1": 0.000015,
-  "openai/tts-1-hd": 0.00003,
-};
-const SPEECH_FALLBACK_USD_PER_CHARACTER = 0.000015;
-
-export function estimateSpeechCostUsd(modelId: string, characters: number): number {
-  const rate = SPEECH_USD_PER_CHARACTER[modelId.trim().toLowerCase()] ?? SPEECH_FALLBACK_USD_PER_CHARACTER;
-  return Math.max(0, characters) * rate;
-}
-
 /** AI Gateway Exa search. List rate is $7 / 1k requests (up to 10 results). */
 export const EXA_SEARCH_MODEL_ID = "exa/search";
 export const EXA_SEARCH_USD_PER_REQUEST = 0.007;
