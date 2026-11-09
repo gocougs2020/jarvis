@@ -101,16 +101,21 @@ function replaceAt(
   return copy;
 }
 
+const isLocal = (turn: VoiceTurn) => turn.id.startsWith("local-");
+
+/**
+ * The user turn an event belongs to: the one with its item id, else the
+ * oldest pending user bubble that has no server id yet. A pending bubble that
+ * already has another item id is a different utterance and is never reused.
+ */
 function pendingUserIndex(turns: readonly VoiceTurn[], itemId?: string): number {
   if (itemId) {
     const byId = turns.findIndex((turn) => turn.id === itemId);
     if (byId >= 0) return byId;
   }
-  for (let index = turns.length - 1; index >= 0; index--) {
-    const turn = turns[index]!;
-    if (turn.role === "user" && !turn.final) return index;
-  }
-  return -1;
+  return turns.findIndex(
+    (turn) => turn.role === "user" && !turn.final && isLocal(turn),
+  );
 }
 
 function cap(turns: VoiceTurn[]): VoiceTurn[] {
@@ -132,16 +137,17 @@ export function reduceTranscript(
       const settled = turns.map((turn) =>
         turn.role === "assistant" && !turn.final ? { ...turn, final: true } : turn,
       );
-      if (pendingUserIndex(settled, event.itemId) >= 0) return settled;
+      if (event.itemId && settled.some((turn) => turn.id === event.itemId))
+        return settled;
       return cap([
         ...settled,
         { id: event.itemId ?? localId("user"), role: "user", text: "", final: false },
       ]);
     }
     case "audio-committed": {
-      const index = pendingUserIndex(turns);
-      if (index < 0 || !event.itemId || turns[index]!.id === event.itemId)
-        return turns;
+      if (!event.itemId) return turns;
+      const index = pendingUserIndex(turns, event.itemId);
+      if (index < 0 || turns[index]!.id === event.itemId) return turns;
       return replaceAt(turns, index, { ...turns[index]!, id: event.itemId });
     }
     case "input-transcription-completed": {

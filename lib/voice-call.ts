@@ -188,11 +188,18 @@ export class VoiceCall {
     if (context.state === "suspended") void context.resume().catch(() => undefined);
 
     // Mic, token + instructions, and the capture worklet load in parallel.
-    const micPromise = navigator.mediaDevices
-      .getUserMedia(micConstraints)
-      .catch((error: unknown) => {
+    // Hold the mic as soon as it opens, so hanging up during setup releases
+    // it right away instead of after the token request finishes.
+    const micPromise = navigator.mediaDevices.getUserMedia(micConstraints).then(
+      (mic) => {
+        if (current()) this.stream = mic;
+        else for (const track of mic.getTracks()) track.stop();
+        return mic;
+      },
+      (error: unknown) => {
         throw new VoiceCallError(micErrorMessage(error));
-      });
+      },
+    );
     let stream: MediaStream | undefined;
     let setup: Awaited<ReturnType<typeof fetchSetup>>;
     try {
@@ -225,7 +232,6 @@ export class VoiceCall {
       return;
     }
 
-    this.stream = stream;
     for (const track of stream.getAudioTracks())
       track.enabled = !this.snapshot.muted;
     this.buildGraph(context, stream);

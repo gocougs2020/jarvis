@@ -62,6 +62,19 @@ describe("reduceTranscript", () => {
     expect(turns).toEqual([{ id: "u9", role: "user", text: "Yes", final: true }]);
   });
 
+  it("keeps overlapping utterances apart when transcriptions land late", () => {
+    const turns = fold([
+      { type: "speech-started", itemId: "u1" },
+      { type: "speech-started", itemId: "u2" },
+      { type: "input-transcription-completed", itemId: "u2", transcript: "second" },
+      { type: "input-transcription-completed", itemId: "u1", transcript: "first" },
+    ]);
+    expect(turns).toEqual([
+      { id: "u1", role: "user", text: "first", final: true },
+      { id: "u2", role: "user", text: "second", final: true },
+    ]);
+  });
+
   it("drops a user bubble whose transcription came back empty", () => {
     const turns = fold([
       { type: "speech-started", itemId: "u1" },
