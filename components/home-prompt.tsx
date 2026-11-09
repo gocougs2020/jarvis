@@ -33,8 +33,8 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { PromptSkillInput } from "@/components/prompt-skill-input";
-import { RealtimeVoicePanel } from "@/components/realtime-voice-panel";
 import { Spinner } from "@/components/ui/spinner";
+import { VoiceConversation } from "@/components/voice-conversation";
 import { VoiceWaveform } from "@/components/voice-waveform";
 import { appConfig } from "@/app.config";
 import { useVoiceRecording } from "@/hooks/use-voice-recording";
@@ -133,7 +133,9 @@ export function HomePrompt({
   };
 
   const openVoiceMode = () => {
-    // Voice mode is its own realtime session, separate from this chat.
+    // Voice mode is its own full-screen realtime call, separate from this
+    // chat: nothing is sent to the agent. Priming inside the tap lets the call
+    // play audio and read the mic, including on Safari.
     recording.cancel();
     primeVoiceAudio();
     setVoiceMode(true);
@@ -189,9 +191,7 @@ export function HomePrompt({
       >
         <HomeAttachments />
         <PromptInputBody>
-          {voiceMode ? (
-            <RealtimeVoicePanel onEnd={() => setVoiceMode(false)} />
-          ) : listening ? (
+          {listening ? (
             <div className="flex min-h-10 flex-row items-center justify-center gap-2 px-5">
               <VoiceWaveform
                 pulse={voice === "transcribing"}
@@ -213,77 +213,78 @@ export function HomePrompt({
             />
           )}
         </PromptInputBody>
-        {voiceMode ? null : (
-          <PromptInputFooter>
-            <PromptInputTools>
-              {listening ? (
+        <PromptInputFooter>
+          <PromptInputTools>
+            {listening ? (
+              <PromptInputButton
+                aria-label="Cancel recording"
+                onClick={recording.cancel}
+              >
+                <XIcon />
+              </PromptInputButton>
+            ) : (
+              <PromptInputActionMenu>
+                <PromptInputActionMenuTrigger aria-label="Attach files">
+                  <PlusIcon className="size-5" />
+                </PromptInputActionMenuTrigger>
+                <PromptInputActionMenuContent>
+                  <PromptInputActionAddAttachments />
+                  <PromptInputActionAddScreenshot />
+                </PromptInputActionMenuContent>
+              </PromptInputActionMenu>
+            )}
+          </PromptInputTools>
+          <div className="flex items-center gap-3">
+            {listening ? (
+              <PromptInputButton
+                aria-label={
+                  voice === "transcribing"
+                    ? "Transcribing"
+                    : "Finish recording"
+                }
+                className="rounded-full"
+                disabled={voice === "transcribing"}
+                variant="default"
+                onClick={() => void finishVoice()}
+              >
+                {voice === "transcribing" ? <Spinner /> : <CheckIcon />}
+              </PromptInputButton>
+            ) : (
+              <>
                 <PromptInputButton
-                  aria-label="Cancel recording"
-                  onClick={recording.cancel}
+                  aria-label="Turn on voice mode"
+                  disabled={submitting}
+                  tooltip="Voice mode: talk with the assistant in real time"
+                  onClick={openVoiceMode}
                 >
-                  <XIcon />
+                  <AudioLinesIcon className="size-5" />
                 </PromptInputButton>
-              ) : (
-                <PromptInputActionMenu>
-                  <PromptInputActionMenuTrigger aria-label="Attach files">
-                    <PlusIcon className="size-5" />
-                  </PromptInputActionMenuTrigger>
-                  <PromptInputActionMenuContent>
-                    <PromptInputActionAddAttachments />
-                    <PromptInputActionAddScreenshot />
-                  </PromptInputActionMenuContent>
-                </PromptInputActionMenu>
-              )}
-            </PromptInputTools>
-            <div className="flex items-center gap-3">
-              {listening ? (
                 <PromptInputButton
-                  aria-label={
-                    voice === "transcribing"
-                      ? "Transcribing"
-                      : "Finish recording"
-                  }
-                  className="rounded-full"
-                  disabled={voice === "transcribing"}
-                  variant="default"
-                  onClick={() => void finishVoice()}
+                  aria-label="Start voice input"
+                  disabled={submitting}
+                  onClick={() => void startListening()}
                 >
-                  {voice === "transcribing" ? <Spinner /> : <CheckIcon />}
+                  <MicIcon className="size-5" />
                 </PromptInputButton>
-              ) : (
-                <>
-                  <PromptInputButton
-                    aria-label="Turn on voice mode"
-                    disabled={submitting}
-                    tooltip="Voice mode: talk with the assistant in real time"
-                    onClick={openVoiceMode}
-                  >
-                    <AudioLinesIcon className="size-5" />
-                  </PromptInputButton>
-                  <PromptInputButton
-                    aria-label="Start voice input"
-                    disabled={submitting}
-                    onClick={() => void startListening()}
-                  >
-                    <MicIcon className="size-5" />
-                  </PromptInputButton>
-                  <HomeSubmit
-                    busy={busy}
-                    onCancel={onCancel}
-                    prompt={prompt}
-                    status={status}
-                    submitting={submitting}
-                  />
-                </>
-              )}
-            </div>
-          </PromptInputFooter>
-        )}
+                <HomeSubmit
+                  busy={busy}
+                  onCancel={onCancel}
+                  prompt={prompt}
+                  status={status}
+                  submitting={submitting}
+                />
+              </>
+            )}
+          </div>
+        </PromptInputFooter>
       </PromptInput>
       {voiceError ? (
         <p className="text-center text-destructive text-xs" role="alert">
           {voiceError}
         </p>
+      ) : null}
+      {voiceMode ? (
+        <VoiceConversation onClose={() => setVoiceMode(false)} />
       ) : null}
     </div>
   );

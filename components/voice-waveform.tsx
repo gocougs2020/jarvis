@@ -27,12 +27,21 @@ function usePrefersReducedMotion() {
  */
 export function VoiceWaveform({
   analyser,
+  barClassName,
   className,
+  mirror,
   pulse,
   stream,
 }: {
   readonly analyser?: AnalyserNode;
+  /** Bar color while live; defaults to the foreground color. */
+  readonly barClassName?: string;
   readonly className?: string;
+  /**
+   * Bold bars mirrored around the center (loudest in the middle), for the
+   * voice-mode call screen. Default: thin bars, low frequencies on the left.
+   */
+  readonly mirror?: boolean;
   readonly pulse?: boolean;
   readonly stream?: MediaStream;
 }) {
@@ -98,28 +107,31 @@ export function VoiceWaveform({
   }, [analyser, pulse, reduceMotion, stream]);
 
   const moving = live || pulse;
+  const shown = moving ? levels : rest();
+  const half = shown.slice(0, Math.ceil(shown.length / 2));
   const bars = reduceMotion
     ? moving
       ? [0.35, 0.7, 0.5, 0.4]
       : [0.15, 0.15, 0.15, 0.15]
-    : moving
-      ? levels
-      : rest();
+    : mirror
+      ? [...half.slice().reverse(), ...half]
+      : shown;
 
   return (
     <div
       aria-hidden
       className={cn(
         "flex h-8 w-full max-w-xs items-center justify-center",
-        reduceMotion ? "gap-1" : "gap-0.5",
+        reduceMotion || mirror ? "gap-1" : "gap-0.5",
         className,
       )}
     >
       {bars.map((level, index) => (
         <span
           className={cn(
-            "w-0.5 rounded-full transition-[height] duration-75",
-            live ? "bg-foreground" : "bg-muted-foreground/60",
+            "rounded-full transition-[height] duration-75",
+            mirror ? "w-1" : "w-0.5",
+            live ? (barClassName ?? "bg-foreground") : "bg-muted-foreground/60",
           )}
           key={index}
           style={{ height: `${Math.round(level * 100)}%` }}
