@@ -391,11 +391,11 @@ voice: {
 },
 ```
 
-The waveform button next to the mic opens voice mode: a live, two-way voice conversation with `models.realtime` (`spacexai/grok-voice-3.0`) in `realtimeVoice` (Grok voices: `ara`, `eve`, `leo`, `rex`, `sal`). Audio streams both ways over an AI Gateway WebSocket. Nothing is transcribed, typed into the chat, or read back, so replies start as soon as you stop talking, and you can talk over a reply to interrupt it. Tap the mic to mute, or **End voice** to close the session.
+The waveform button next to the mic opens voice mode: a full-screen call with `models.realtime` (`spacexai/grok-voice-3.0`) in `realtimeVoice` (Grok voices: `ara`, `eve`, `leo`, `rex`, `sal`). Audio streams both ways over an AI Gateway WebSocket straight from the browser. The screen shows a live transcript of both sides and a waveform for each speaker. You can talk over a reply to interrupt it, tap the mic to mute, or tap **End** to hang up.
 
-Voice mode is separate from the agent. It knows your name, your saved memories, and your instructions from **Settings**, but it has no tools (no email, calendar, files, web search, or reminders), and the conversation is not saved to the chat. For anything that needs tools, type it in the chat; the plain mic button still dictates into the composer with `models.transcription`.
+Voice mode is separate from the agent and the chat it was opened from: it never starts an eve session, and the conversation is not saved. It knows your name, your saved memories, and your instructions from **Settings**, but it has no tools (no email, calendar, files, web search, or reminders). For anything that needs tools, type it in the chat; the plain mic button still dictates into the composer with `models.transcription`.
 
-The browser gets a 60-second Gateway client secret from `POST /api/realtime`, so the Gateway key never leaves the server. AI Gateway closes a realtime session after 25 minutes, or after 5 minutes of silence; tap the mic to start a new one. Realtime is experimental in AI SDK 7 (`experimental_useRealtime` from `@ai-sdk/react`), and its usage is billed by AI Gateway but not yet shown on the Usage page.
+One `POST /api/realtime` returns a 60-second Gateway client secret plus the voice instructions, so the Gateway key never leaves the server. The client is `lib/voice-call.ts`; the mic is captured by `public/voice-capture-worklet.js`. If the Gateway rejects the session (credentials, model, or voice), the call screen shows its reason. AI Gateway closes a realtime session after 25 minutes, or after 5 minutes of silence; tap **Talk again** to start a new one. Realtime usage is billed by AI Gateway but not yet shown on the Usage page. `spacexai/grok-voice-3.0` is a reasoning model, so it can pause before it answers; if replies feel slow, try another Gateway realtime model such as `openai/gpt-realtime-2` (with one of that provider's voices).
 
 ### In-app setup page
 
