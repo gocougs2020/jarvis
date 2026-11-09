@@ -241,6 +241,7 @@ export class VoiceCall {
       this.fail("Voice mode could not reach the voice service.");
       return;
     }
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
     let opened = false;
 
@@ -268,11 +269,15 @@ export class VoiceCall {
       });
       this.setPhase("listening");
     };
-    ws.onmessage = (message) => {
-      if (!current() || typeof message.data !== "string") return;
+    ws.onmessage = (message: MessageEvent<string | ArrayBuffer>) => {
+      if (!current()) return;
+      const text =
+        typeof message.data === "string"
+          ? message.data
+          : new TextDecoder().decode(message.data);
       let event: ServerEvent;
       try {
-        event = JSON.parse(message.data) as ServerEvent;
+        event = JSON.parse(text) as ServerEvent;
       } catch {
         return;
       }
@@ -383,7 +388,13 @@ export class VoiceCall {
       case "audio-delta":
         this.play(event);
         break;
+      case "session-updated":
+        // A recoverable error earlier (say, a late truncate) is not why a
+        // later close happens.
+        this.lastServerError = undefined;
+        break;
       case "response-done":
+        this.lastServerError = undefined;
         if (this.sources.size === 0 && this.snapshot.phase !== "hearing")
           this.setPhase("listening");
         break;
