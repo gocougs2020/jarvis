@@ -47,6 +47,15 @@ type ServerEvent = { readonly type: string; readonly [key: string]: unknown };
 const CONNECT_TIMEOUT_MS = 15_000;
 const WORKLET_URL = "/voice-capture-worklet.js";
 const workletLoads = new WeakMap<BaseAudioContext, Promise<void>>();
+const SHOW_TRANSCRIPT = appConfig.voice.transcript;
+
+/** Server VAD, with `voice.turnSilenceMs` when set (0 = provider default). */
+function turnDetection() {
+  const silence = appConfig.voice.turnSilenceMs;
+  return silence > 0
+    ? { type: "server-vad" as const, silenceDurationMs: Math.round(silence) }
+    : { type: "server-vad" as const };
+}
 
 const micConstraints: MediaStreamConstraints = {
   audio: {
@@ -147,6 +156,8 @@ export class VoiceCall {
   private replyItemId: string | undefined;
   private replyStartedAt = 0;
   private lastServerError: string | undefined;
+  /** `performance.now()` when the server said the user stopped talking. */
+  private turnEndedAt: number | undefined;
   private connectTimer: ReturnType<typeof setTimeout> | undefined;
 
   subscribe = (listener: () => void) => {
@@ -260,16 +271,19 @@ export class VoiceCall {
       if (!current()) return;
       opened = true;
       clearTimeout(this.connectTimer);
+      // Transcription runs beside the reply, never in front of it: audio is
+      // played the moment each chunk arrives, whatever the text is doing.
       this.send({
         type: "session-update",
         config: {
           inputAudioFormat: { type: "audio/pcm", rate: REALTIME_SAMPLE_RATE },
-          inputAudioTranscription: {},
+          ...(SHOW_TRANSCRIPT
+            ? { inputAudioTranscription: {}, outputAudioTranscription: {} }
+            : {}),
           instructions: setup.instructions,
           outputAudioFormat: { type: "audio/pcm", rate: REALTIME_SAMPLE_RATE },
-          outputAudioTranscription: {},
           outputModalities: ["audio"],
-          turnDetection: { type: "server-vad" },
+          turnDetection: turnDetection(),
           voice: appConfig.voice.realtimeVoice,
         },
       });
@@ -389,11 +403,20 @@ export class VoiceCall {
         this.setPhase("hearing");
         break;
       case "speech-stopped":
+        this.turnEndedAt = performance.now();
         if (this.snapshot.phase === "hearing") this.setPhase("waiting");
         break;
       case "audio-delta":
         this.play(event);
-        break;
+        if (this.turnEndedAt !== undefined) {
+          // Time the model took to answer once it decided you were done
+          // (the silence window is spent before "speech-stopped" arrives).
+          console.debug(
+            `[voice] reply audio started ${Math.round(performance.now() - this.turnEndedAt)} ms after your turn ended`,
+          );
+          this.turnEndedAt = undefined;
+        }
+        return;
       case "session-updated":
         // A recoverable error earlier (say, a late truncate) is not why a
         // later close happens.
@@ -414,6 +437,7 @@ export class VoiceCall {
         break;
       }
     }
+    if (!SHOW_TRANSCRIPT) return;
     const turns = reduceTranscript(this.snapshot.turns, event as TranscriptEvent);
     if (turns !== this.snapshot.turns) this.update({ turns });
   }
@@ -449,6 +473,7 @@ export class VoiceCall {
   }
 
   private cutReply() {
+    this.turnEndedAt = undefined;
     const context = this.context;
     const playedMs = context
       ? Math.max(0, Math.round((context.currentTime - this.replyStartedAt) * 1000))

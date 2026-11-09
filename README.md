@@ -388,10 +388,12 @@ The inbox holds the owner's mail, and only the owner can sign in, so it shows in
 ```ts
 voice: {
   realtimeVoice: "ara",
+  transcript: true,
+  turnSilenceMs: 0,
 },
 ```
 
-The waveform button next to the mic opens voice mode: a full-screen call with `models.realtime` (`spacexai/grok-voice-3.0`) in `realtimeVoice` (Grok voices: `ara`, `eve`, `leo`, `rex`, `sal`). Audio streams both ways over an AI Gateway WebSocket straight from the browser. The screen shows a live transcript of both sides and a waveform for each speaker. You can talk over a reply to interrupt it, tap the mic to mute, or tap **End** to hang up.
+The waveform button next to the mic opens voice mode: a full-screen call with `models.realtime` (`spacexai/grok-voice-3.0`) in `realtimeVoice` (Grok voices: `ara`, `eve`, `leo`, `rex`, `sal`). Audio streams both ways over an AI Gateway WebSocket straight from the browser. The screen shows a live transcript of both sides and a waveform for each speaker. The transcript never holds up the reply: audio plays as soon as each chunk arrives, and the text fills in beside it. Set `transcript: false` for a voice-only call; the model is then not asked to transcribe either side. `turnSilenceMs` is how long you must pause before the model treats your turn as over (`0` keeps the provider's default); lower answers sooner but can cut you off mid-thought. The browser console logs (at debug level) how many milliseconds each reply took to start after your turn ended. You can talk over a reply to interrupt it, tap the mic to mute, or tap **End** to hang up.
 
 Voice mode is separate from the agent and the chat it was opened from: it never starts an eve session, and the conversation is not saved. It knows your name, your saved memories, and your instructions from **Settings**, but it has no tools (no email, calendar, files, web search, or reminders). For anything that needs tools, type it in the chat; the plain mic button still dictates into the composer with `models.transcription`.
 

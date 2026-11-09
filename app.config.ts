@@ -224,6 +224,19 @@ export type AppConfig = {
   voice: {
     /** Voice for `models.realtime`. Grok voices: ara, eve, leo, rex, sal. */
     realtimeVoice: string;
+    /**
+     * Show a live transcript of both sides on the voice screen. The reply
+     * audio never waits for it (text and audio arrive as separate events), so
+     * this only changes what the screen shows; `false` also stops asking the
+     * realtime model to transcribe at all.
+     */
+    transcript: boolean;
+    /**
+     * How long you must be silent (ms) before the realtime model treats your
+     * turn as over and starts answering. Lower replies sooner but can cut you
+     * off mid-pause. `0` keeps the provider's own default.
+     */
+    turnSilenceMs: number;
   };
   setup: {
     /**
@@ -416,6 +429,8 @@ const defaults = {
 
   voice: {
     realtimeVoice: "ara",
+    transcript: true,
+    turnSilenceMs: 0,
   },
 
   setup: {

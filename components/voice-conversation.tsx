@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { appConfig } from "@/app.config";
 import { Button } from "@/components/ui/button";
 import { VoiceWaveform } from "@/components/voice-waveform";
 import { APP_NAME } from "@/lib/brand";
@@ -37,9 +38,9 @@ function statusText({ message, muted, phase }: VoiceCallSnapshot): string {
 }
 
 /**
- * Voice mode as its own full-screen call: a live transcript, a waveform for
- * each side, and call controls. It talks to `models.realtime` directly from
- * the browser (`lib/voice-call.ts`) and never touches the eve agent or the
+ * Voice mode as its own full-screen call: a live transcript (unless
+ * `voice.transcript` is off), a waveform for each side, and call controls.
+ * It talks to `models.realtime` directly from the browser (`lib/voice-call.ts`) and never touches the eve agent or the
  * chat it was opened from.
  */
 export function VoiceConversation({ onClose }: { readonly onClose: () => void }) {
@@ -114,7 +115,7 @@ export function VoiceConversation({ onClose }: { readonly onClose: () => void })
               {turns.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
                   <p className="text-lg">
-                    {finished ? "Nothing was said." : `Say hello to ${APP_NAME}.`}
+                    {emptyHeadline(finished, appConfig.voice.transcript)}
                   </p>
                   <p className="max-w-sm text-muted-foreground text-sm">
                     Voice mode is a quick conversation. It can&apos;t use your
@@ -199,6 +200,11 @@ export function VoiceConversation({ onClose }: { readonly onClose: () => void })
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
+}
+
+function emptyHeadline(finished: boolean, transcript: boolean): string {
+  if (!transcript) return finished ? "Call ended." : `On a call with ${APP_NAME}.`;
+  return finished ? "Nothing was said." : `Say hello to ${APP_NAME}.`;
 }
 
 function SpeakerLane({
